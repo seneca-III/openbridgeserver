@@ -6,6 +6,7 @@ import { useIcons } from '@/composables/useIcons'
 import { useDatapointsStore } from '@/stores/datapoints'
 import { useWebSocket } from '@/composables/useWebSocket'
 import type { DataPointValue } from '@/types'
+import { TIME_RANGE_PRESETS, DEFAULT_TIME_RANGE, resolveTimeRange } from '@/widgets/Chart/timeRangePresets'
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Filler, Tooltip)
 
@@ -42,10 +43,20 @@ const { getSvg, isSvgIcon, svgIconName } = useIcons()
 const mode          = computed<DisplayMode>(() => (props.config.mode as DisplayMode | undefined) ?? 'value')
 const widgetLabel   = computed(() => (props.config.label as string | undefined) ?? '')
 const rules         = computed<Rule[]>(() => (props.config.rules as Rule[] | undefined) ?? [])
-const historyHours  = computed(() => (props.config.history_hours as number | undefined) ?? 24)
 const secondaryDpId = computed(() => (props.config.secondary_dp_id as string | undefined) ?? '')
 const secLabel      = computed(() => (props.config.secondary_label as string | undefined) ?? '')
 const secDecimals   = computed(() => (props.config.secondary_decimals as number | undefined) ?? 1)
+
+function configHistoryTimeRange(config: Record<string, unknown>): string {
+  if (config.history_time_range && typeof config.history_time_range === 'string') return config.history_time_range as string
+  return DEFAULT_TIME_RANGE
+}
+
+const selectedTimeRange = ref(configHistoryTimeRange(props.config))
+
+watch(() => props.config.history_time_range, () => {
+  selectedTimeRange.value = configHistoryTimeRange(props.config)
+})
 
 // ── Rule evaluation ────────────────────────────────────────────────────────────
 
@@ -201,14 +212,13 @@ function makeDataset(color: string) {
 
 async function fetchPoints() {
   if (!props.datapointId || props.editorMode) return { pts: [], minMs: 0, maxMs: 0 }
-  const now      = new Date()
-  const fromDate = new Date(now.getTime() - historyHours.value * 3_600_000)
-  const data     = await history.query(props.datapointId, fromDate.toISOString(), now.toISOString())
+  const { from: fromDate, to: toDate } = resolveTimeRange(selectedTimeRange.value)
+  const data = await history.query(props.datapointId, fromDate.toISOString(), toDate.toISOString())
   histUnit = data[0]?.u ?? ''
   return {
     pts:   data.map(d => ({ x: new Date(d.ts).getTime(), y: Number(d.v) })),
     minMs: fromDate.getTime(),
-    maxMs: now.getTime(),
+    maxMs: toDate.getTime(),
   }
 }
 
@@ -257,7 +267,8 @@ onMounted(() => {
   updateMiniChart()
 })
 
-watch(() => [props.datapointId, historyHours.value], updateMiniChart)
+watch(() => props.datapointId, updateMiniChart)
+watch(selectedTimeRange, updateMiniChart)
 
 watch(modalOpen, async (open) => {
   if (!open) { modalChart?.destroy(); modalChart = null; return }
@@ -344,7 +355,18 @@ const quality = computed(() => props.value?.q ?? null)
 
   <!-- ── HISTORY MODE ───────────────────────────────────────────────────────── -->
   <div v-else-if="mode === 'history'" class="flex flex-col items-center h-full p-2 select-none">
-    <span v-if="widgetLabel" class="text-xs text-gray-500 dark:text-gray-400 truncate w-full text-center shrink-0 mb-1">{{ widgetLabel }}</span>
+    <div class="flex items-center justify-between gap-1 w-full shrink-0 mb-1 min-w-0">
+      <span v-if="widgetLabel" class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ widgetLabel }}</span>
+      <span v-else class="shrink-0" />
+      <select
+        v-if="!editorMode"
+        v-model="selectedTimeRange"
+        class="shrink-0 text-xs bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+        title="Zeitbereich wählen"
+      >
+        <option v-for="p in TIME_RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+      </select>
+    </div>
 
     <!-- Icon: 3 flex shares, no circle -->
     <div class="min-h-0 flex items-center justify-center w-full" style="flex: 3; aspect-ratio: 1; max-width: 100%">
@@ -417,11 +439,11 @@ const quality = computed(() => props.value?.q ?? null)
       @click.self="modalOpen = false"
     >
       <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-4 w-[90vw] max-w-2xl h-[60vh] flex flex-col">
-        <div class="flex items-center justify-between mb-3 shrink-0">
-          <div class="flex items-center gap-2">
+        <div class="flex items-center justify-between mb-3 shrink-0 gap-3">
+          <div class="flex items-center gap-2 min-w-0">
             <span
               v-if="activeIcon && !isSvgIcon(activeIcon)"
-              class="text-2xl leading-none select-none"
+              class="text-2xl leading-none select-none shrink-0"
               :style="{ color: activeColor }"
             >{{ activeIcon }}</span>
             <span
@@ -430,12 +452,21 @@ const quality = computed(() => props.value?.q ?? null)
               :style="{ color: activeColor }"
               v-html="coloredSvg"
             />
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ widgetLabel || 'Verlauf' }}</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{{ widgetLabel || 'Verlauf' }}</span>
           </div>
-          <button
-            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
-            @click="modalOpen = false"
-          >✕</button>
+          <div class="flex items-center gap-2 shrink-0">
+            <select
+              v-model="selectedTimeRange"
+              class="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+              title="Zeitbereich wählen"
+            >
+              <option v-for="p in TIME_RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+            <button
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
+              @click="modalOpen = false"
+            >✕</button>
+          </div>
         </div>
         <div class="flex-1 min-h-0">
           <canvas ref="modalCanvasEl" class="w-full h-full" />
