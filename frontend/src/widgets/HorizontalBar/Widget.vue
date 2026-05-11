@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed } from 'vue'
 import { useDatapointsStore } from '@/stores/datapoints'
 import type { DataPointValue } from '@/types'
@@ -89,11 +89,12 @@ function fillStyle(pct: number): Record<string, string> {
           :key="i"
           class="flex items-center gap-2"
         >
-          <!-- Label -->
+          <!-- Label: nur rendern wenn Text vorhanden, Breite passt sich der Textlänge an -->
           <span
+            v-if="bar.label"
             class="text-xs text-gray-400 dark:text-gray-400 truncate shrink-0 text-right"
-            style="width: 28%; min-width: 3rem"
-          >{{ bar.label || ' ' }}</span>
+            style="max-width: 35%"
+          >{{ bar.label }}</span>
 
           <!-- Bar track -->
           <div
