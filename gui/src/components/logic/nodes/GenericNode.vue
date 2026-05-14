@@ -181,6 +181,30 @@ const def = computed(() => {
     }
     return { ...base, outputs }
   }
+  if (props.type === 'json_extractor') {
+    let pathList = []
+    try { pathList = JSON.parse(props.data?.json_paths || '[]') } catch (_) { pathList = [] }
+    if (Array.isArray(pathList) && pathList.length > 0) {
+      const outputs = pathList.map((entry, i) => ({
+        id:    `out_${i + 1}`,
+        label: (entry?.label || `Wert ${i + 1}`),
+      }))
+      return { ...base, outputs }
+    }
+    return base
+  }
+  if (props.type === 'xml_extractor') {
+    let pathList = []
+    try { pathList = JSON.parse(props.data?.xml_paths || '[]') } catch (_) { pathList = [] }
+    if (Array.isArray(pathList) && pathList.length > 0) {
+      const outputs = pathList.map((entry, i) => ({
+        id:    `out_${i + 1}`,
+        label: (entry?.label || `Wert ${i + 1}`),
+      }))
+      return { ...base, outputs }
+    }
+    return base
+  }
   return base
 })
 
@@ -224,8 +248,18 @@ const summary = computed(() => {
     return `${url} · ${count} Filter`
   }
   if (props.type === 'api_client')          return `${d.method ?? 'GET'}  ${(d.url || '—').slice(0, 20)}`
-  if (props.type === 'json_extractor')      return d.json_path || '—'
-  if (props.type === 'xml_extractor')       return d.xml_path  || '—'
+  if (props.type === 'json_extractor') {
+    let pathList = []
+    try { pathList = JSON.parse(d.json_paths || '[]') } catch (_) { pathList = [] }
+    if (Array.isArray(pathList) && pathList.length > 0) return `${pathList.length} Ausgänge`
+    return d.json_path || '—'
+  }
+  if (props.type === 'xml_extractor') {
+    let pathList = []
+    try { pathList = JSON.parse(d.xml_paths || '[]') } catch (_) { pathList = [] }
+    if (Array.isArray(pathList) && pathList.length > 0) return `${pathList.length} Ausgänge`
+    return d.xml_path || '—'
+  }
   if (props.type === 'substring_extractor') {
     const modeLabel = { links_von:'links von', rechts_von:'rechts von', zwischen:'zwischen', ausschneiden:'ausschneiden', regex:'regex' }
     const m = modeLabel[d.mode] ?? d.mode ?? '—'
