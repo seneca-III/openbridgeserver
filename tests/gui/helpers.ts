@@ -156,6 +156,19 @@ export async function waitForMonitorReady(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="status-badge"]')).toBeVisible({ timeout: 15_000 })
 }
 
+/**
+ * Navigate to the Monitor and wait until the live WebSocket is connected.
+ *
+ * Tests that push values via the API and expect them to appear through the
+ * live `ringbuffer_entry` push MUST use this — the server does not replay
+ * events, so any value written before the WS handshake completes is lost.
+ * The "Live" badge text is shown only while `wsStore.connected` is true.
+ */
+export async function gotoMonitorLive(page: Page): Promise<void> {
+  await page.goto('/ringbuffer')
+  await expect(page.locator('[data-testid="status-badge"]')).toContainText('Live', { timeout: 20_000 })
+}
+
 /** Upload a single SVG file to the icon library. `name` is the filename without extension. */
 export async function apiUploadIcon(name: string, svgContent: string): Promise<void> {
   const token = await getToken()

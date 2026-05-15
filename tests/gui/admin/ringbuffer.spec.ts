@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { apiPost, apiDelete, gotoMonitor, waitForMonitorReady } from '../helpers'
+import { apiPost, apiDelete, gotoMonitor, gotoMonitorLive, waitForMonitorReady } from '../helpers'
 
 test('RingBuffer Live-Eintrag ohne Reload', async ({ page }) => {
   // Fixture: create a DataPoint
@@ -11,10 +11,7 @@ test('RingBuffer Live-Eintrag ohne Reload', async ({ page }) => {
   const dpId = created.id
 
   try {
-    await gotoMonitor(page)
-
-    // Status badge must say "Live"
-    await expect(page.locator('[data-testid="status-badge"]')).toContainText('Live', { timeout: 8_000 })
+    await gotoMonitorLive(page)
 
     // Before the push, no entries for this brand-new DP should exist
     const before = await page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpId}"]`).count()
@@ -39,8 +36,7 @@ test('RingBuffer Pause/Resume stoppt Live-Append und holt Queue nach', async ({ 
   const dpId = created.id
 
   try {
-    await gotoMonitor(page)
-    await expect(page.locator('[data-testid="status-badge"]')).toContainText('Live', { timeout: 8_000 })
+    await gotoMonitorLive(page)
 
     const rows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpId}"]`)
     const before = await rows.count()
@@ -71,7 +67,7 @@ test('RingBuffer Auto-Scroll folgt Live, bleibt stabil bei Pause', async ({ page
   const dpId = created.id
 
   try {
-    await gotoMonitor(page)
+    await gotoMonitorLive(page)
     const rows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpId}"]`)
     const before = await rows.count()
 
@@ -111,7 +107,7 @@ test('RingBuffer zeigt Live-Einträge auch ohne manuellen Refresh', async ({ pag
   const dpId = created.id
 
   try {
-    await gotoMonitor(page)
+    await gotoMonitorLive(page)
     const rows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpId}"]`)
     const before = await rows.count()
 

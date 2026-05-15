@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test'
-import { apiPost, apiPatch, apiDelete, gotoMonitor } from '../helpers'
+import { apiPost, apiPatch, apiDelete, gotoMonitorLive } from '../helpers'
 
 // API-First helper: create a filterset and flip topbar_active=true. UI tests
 // that don't validate the FilterEditor itself use this so they don't depend
@@ -107,7 +107,7 @@ test('FilterCriteria: Tags-Liste OR-matcht, Datapoints AND-engt ein', async ({ p
     await apiPost(`/api/v1/datapoints/${dpA.id}/value`, { value: 11.0, quality: 'good' })
     await apiPost(`/api/v1/datapoints/${dpB.id}/value`, { value: 22.0, quality: 'good' })
 
-    await gotoMonitor(page)
+    await gotoMonitorLive(page)
 
     await openNewFilterEditor(page)
     await page.fill('[data-testid="filter-editor-name"]', uniqueName('FS-AND-OR'))
@@ -161,7 +161,7 @@ test('Topbar-Chip-Toggle schaltet das Set ein und aus', async ({ page }) => {
     // API-first set creation: this test is about toggle UX, not FilterEditor.
     setId = await createActiveFilterset(uniqueName('FS-TOGGLE'), { datapoints: [dpIn.id] })
 
-    await gotoMonitor(page)
+    await gotoMonitorLive(page)
 
     const dpInRows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpIn.id}"]`)
     const dpOutRows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpOut.id}"]`)
@@ -218,7 +218,7 @@ test('Hierarchy-Knoten löst descendant-inclusive auf (Recursive-CTE)', async ({
   try {
     await apiPost(`/api/v1/datapoints/${dp.id}/value`, { value: 42.0, quality: 'good' })
 
-    await gotoMonitor(page)
+    await gotoMonitorLive(page)
 
     await openNewFilterEditor(page)
     await page.fill('[data-testid="filter-editor-name"]', uniqueName('FS-HIER'))
@@ -260,7 +260,7 @@ test('Live-Event eines nicht passenden DPs wird durch aktiven Filter gegated', a
 
     setId = await createActiveFilterset(uniqueName('FS-LIVE-GATE'), { datapoints: [dpIn.id] })
 
-    await gotoMonitor(page)
+    await gotoMonitorLive(page)
 
     const dpInRows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpIn.id}"]`)
     const dpOutRows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpOut.id}"]`)
