@@ -214,6 +214,11 @@ test('Topbar-Chip-Toggle schaltet das Set ein und aus', async ({ page }) => {
     const dpOutRows = page.locator(`[data-testid="ringbuffer-entry"][data-dp="${dpOut.id}"]`)
 
     await expectTopbarChip(page, setId)
+    // Pause the live feed: once the set is toggled inactive there are no
+    // active topbar sets, so the live feed would run unfiltered and a
+    // background WS push could repopulate the table between the toggle and
+    // the empty-state assertion. This test isolates the query-path behaviour.
+    await page.click('[data-testid="btn-live-pause"]')
     await expect(dpInRows).toHaveCount(1, { timeout: 10_000 })
     await expect(dpOutRows).toHaveCount(0)
 
