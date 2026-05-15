@@ -180,6 +180,23 @@ export async function gotoMonitorLive(page: Page): Promise<void> {
   await initialQuery
 }
 
+/**
+ * Delete every ringbuffer filterset.
+ *
+ * Filtersets are global admin state. A test (or a previously failed test
+ * whose `finally` cleanup was skipped) can leave a `topbar_active` set
+ * behind. RingBufferView then loads it on mount, and onLiveEntry gates every
+ * live `ringbuffer_entry` against that set — dropping pushes for any DP that
+ * does not match. Call this in a beforeEach so each Monitor test starts from
+ * a clean, unfiltered live feed.
+ */
+export async function deleteAllFiltersets(): Promise<void> {
+  const sets = (await apiGet('/api/v1/ringbuffer/filtersets')) as Array<{ id: string }>
+  for (const set of sets) {
+    await apiDelete(`/api/v1/ringbuffer/filtersets/${set.id}`)
+  }
+}
+
 /** Upload a single SVG file to the icon library. `name` is the filename without extension. */
 export async function apiUploadIcon(name: string, svgContent: string): Promise<void> {
   const token = await getToken()

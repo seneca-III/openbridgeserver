@@ -1,5 +1,12 @@
 import { test, expect, type Page, type Locator } from '@playwright/test'
-import { apiPost, apiPatch, apiDelete, gotoMonitorLive } from '../helpers'
+import { apiPost, apiPatch, apiDelete, deleteAllFiltersets, gotoMonitorLive } from '../helpers'
+
+// Filtersets are global state — a previously failed test may leave a
+// topbar-active set behind, which then pollutes both this file and the
+// ringbuffer live tests. Start every test from a clean slate.
+test.beforeEach(async () => {
+  await deleteAllFiltersets()
+})
 
 // API-First helper: create a filterset and flip topbar_active=true. UI tests
 // that don't validate the FilterEditor itself use this so they don't depend

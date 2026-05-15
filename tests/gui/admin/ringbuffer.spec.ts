@@ -1,5 +1,18 @@
 import { test, expect } from '@playwright/test'
-import { apiPost, apiDelete, gotoMonitor, gotoMonitorLive, waitForMonitorReady } from '../helpers'
+import {
+  apiPost,
+  apiDelete,
+  deleteAllFiltersets,
+  gotoMonitor,
+  gotoMonitorLive,
+  waitForMonitorReady,
+} from '../helpers'
+
+// Filtersets are global state. Start every test from an empty, unfiltered
+// feed so a leftover topbar-active set cannot gate out live pushes.
+test.beforeEach(async () => {
+  await deleteAllFiltersets()
+})
 
 test('RingBuffer Live-Eintrag ohne Reload', async ({ page }) => {
   // Fixture: create a DataPoint
