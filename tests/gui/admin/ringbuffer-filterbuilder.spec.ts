@@ -32,21 +32,25 @@ async function openNewFilterEditor(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="filter-editor-name"]')).toBeVisible({ timeout: 5_000 })
 }
 
-// Pick the first matching item from a Combobox scoped by the wrapper test-id.
-// Works for DpCombobox, TagCombobox, HierarchyCombobox and AdapterCombobox —
-// they all render <Combobox> internally and share the same input/item slots.
-async function pickInCombobox(page: Page, scopeTestId: string, query: string): Promise<void> {
+// Pick an item from a Combobox scoped by the wrapper test-id. Works for
+// DpCombobox, TagCombobox, HierarchyCombobox and AdapterCombobox — they all
+// render <Combobox> internally and share the same input/item slots.
+//
+// `match` must be text that appears in the target suggestion item (a tag,
+// datapoint name or hierarchy node name — NOT a UUID; the hierarchy combobox
+// only searches names). The helper types it, then waits until combobox-item-0
+// actually renders that text. The combobox debounces and fetches suggestions
+// asynchronously, and `input.click()` already triggers a focus-fetch of the
+// unfiltered list — clicking item-0 before the query-fetch lands would pick a
+// stale entry. Asserting the rendered text first makes the pick deterministic.
+async function pickInCombobox(page: Page, scopeTestId: string, match: string): Promise<void> {
   const root = page.locator(`[data-testid="${scopeTestId}"]`)
   const input = root.locator('[data-testid="combobox-input"]').first()
   await input.click()
-  if (query) await input.fill(query)
-  // The suggestion list is fetched asynchronously. Clicking combobox-item-0
-  // straight away races that fetch and can pick a stale pre-filter item (e.g.
-  // an unrelated datapoint). Wait until the list has narrowed to the single
-  // match for `query` before clicking.
-  const items = root.locator('[data-testid^="combobox-item-"]')
-  if (query) await expect(items).toHaveCount(1)
-  await items.first().click({ timeout: 5_000 })
+  if (match) await input.fill(match)
+  const item0 = root.locator('[data-testid="combobox-item-0"]').first()
+  if (match) await expect(item0).toContainText(match)
+  await item0.click({ timeout: 5_000 })
 }
 
 // Click "Speichern & in Topleiste" and wait until the full chain has settled:
@@ -104,8 +108,9 @@ function topbarChip(page: Page, setId: string): Locator {
 
 test('FilterCriteria: Tags-Liste OR-matcht, Datapoints AND-engt ein', async ({ page }) => {
   const tag = uniqueName('fe02-and-or')
+  const dpAName = uniqueName('E2E-RB-FE02-A')
   const dpA = (await apiPost('/api/v1/datapoints', {
-    name: uniqueName('E2E-RB-FE02-A'),
+    name: dpAName,
     data_type: 'FLOAT',
     tags: [tag],
   })) as { id: string }
@@ -142,7 +147,7 @@ test('FilterCriteria: Tags-Liste OR-matcht, Datapoints AND-engt ein', async ({ p
     // runs Object.assign(form, makeEmptyForm()), which would otherwise wipe a
     // datapoint picked before the async load resolves).
     await expect(page.locator('[data-testid="filter-editor-name"]')).not.toHaveValue('')
-    await pickInCombobox(page, 'filter-editor-dps', dpA.id)
+    await pickInCombobox(page, 'filter-editor-dps', dpAName)
     await saveAndCaptureId(page)
 
     await expect(
@@ -217,10 +222,11 @@ test('Hierarchy-Knoten löst descendant-inclusive auf (Recursive-CTE)', async ({
     name: uniqueName('FE02-Tree'),
     description: 'E2E',
   })) as { id: string }
+  const nodeName = uniqueName('FE02-Node')
   const node = (await apiPost('/api/v1/hierarchy/nodes', {
     tree_id: tree.id,
     parent_id: null,
-    name: uniqueName('FE02-Node'),
+    name: nodeName,
     description: 'E2E',
     order: 0,
   })) as { id: string }
@@ -239,7 +245,7 @@ test('Hierarchy-Knoten löst descendant-inclusive auf (Recursive-CTE)', async ({
 
     await openNewFilterEditor(page)
     await page.fill('[data-testid="filter-editor-name"]', uniqueName('FS-HIER'))
-    await pickInCombobox(page, 'filter-editor-hierarchy', node.id)
+    await pickInCombobox(page, 'filter-editor-hierarchy', nodeName)
     setId = await saveAndCaptureId(page)
 
     // The DP is linked to the node but not picked explicitly. Recursive-CTE
