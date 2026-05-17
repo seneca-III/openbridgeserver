@@ -18,7 +18,7 @@
     </div>
 
     <!-- Demo-Modus Banner -->
-    <div v-if="isDemo && activeTab !== 'general'" class="flex items-center gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-600 dark:text-amber-400">
+    <div v-if="isDemo" class="flex items-center gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-600 dark:text-amber-400">
       <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M12 3a9 9 0 110 18A9 9 0 0112 3z"/></svg>
       Demo-Modus — dieser Bereich ist schreibgeschützt/gesperrt.
     </div>
@@ -27,7 +27,7 @@
     <div v-if="activeTab === 'general'" class="flex flex-col gap-4 max-w-md">
 
       <!-- Zeitzone -->
-      <div v-if="!isDemo" class="card">
+      <div class="card" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
         <div class="card-header"><h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Allgemeine Einstellungen</h3></div>
         <div class="card-body flex flex-col gap-4">
           <div class="form-group">
@@ -100,7 +100,7 @@
     </div>
 
     <!-- ── Passwort ── -->
-    <div v-if="activeTab === 'password' && !isDemo" class="card max-w-md">
+    <div v-if="activeTab === 'password'" class="card max-w-md" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
       <div class="card-header"><h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Passwort ändern</h3></div>
       <div class="card-body">
         <form @submit.prevent="changePassword" class="flex flex-col gap-4">
@@ -126,7 +126,7 @@
     </div>
 
     <!-- ── Benutzer (Admin only) ── -->
-    <div v-if="activeTab === 'users' && auth.isAdmin && !isDemo">
+    <div v-if="activeTab === 'users' && (auth.isAdmin || isDemo)" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
       <div class="flex items-center gap-3 mb-4">
         <span class="flex-1 text-sm text-slate-400">{{ users.length }} Benutzer</span>
         <button @click="openCreateUser" class="btn-primary btn-sm">+ Benutzer</button>
@@ -163,7 +163,7 @@
     </div>
 
     <!-- ── API Keys ── -->
-    <div v-if="activeTab === 'apikeys' && !isDemo">
+    <div v-if="activeTab === 'apikeys'" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
       <div class="flex items-center gap-3 mb-4">
         <span class="flex-1 text-sm text-slate-400">{{ apiKeys.length }} API Keys</span>
         <button @click="createApiKey" class="btn-primary btn-sm">+ API Key</button>
@@ -189,22 +189,111 @@
     </div>
 
     <!-- ── Datenmanagement ── -->
-    <div v-if="activeTab === 'importexport' && !isDemo" class="flex flex-col gap-4 max-w-lg">
+    <div v-if="activeTab === 'importexport'" class="flex flex-col gap-4 max-w-lg" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
+
+      <!-- Sicherung erstellen (download) -->
       <div class="card p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Konfiguration sichern</h3>
-        <p class="text-sm text-slate-400">Alle Objekte, Verknüpfungen, Adapter-Instanzen, KNX-Gruppenadressen, Logikblätter, Icons und den FontAwesome API Key als JSON-Datei sichern.</p>
+        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Sicherung erstellen (download)</h3>
+        <p class="text-sm text-slate-400">Alle Objekte, Verknüpfungen, Adapter-Instanzen, KNX-Gruppenadressen, Logikblätter, Visu, NavLinks, AppSettings, Hierarchy, Icons und den FontAwesome API Key als JSON-Datei sichern.</p>
         <button @click="doExport" class="btn-secondary">JSON herunterladen</button>
       </div>
+
+      <!-- Sicherung wiederherstellen (upload) -->
       <div class="card p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Datenbank sichern</h3>
-        <p class="text-sm text-slate-400">Vollständige SQLite-Datenbank (inkl. Historiendaten) als Datei sichern.</p>
-        <button @click="doExportDb" class="btn-secondary">SQLite herunterladen</button>
-      </div>
-      <div class="card p-5 flex flex-col gap-3">
-        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Sicherung wiederherstellen</h3>
-        <p class="text-sm text-slate-400">Sicherungsdatei einspielen. Bestehende Einträge werden aktualisiert, fehlende neu angelegt. Icons und FontAwesome API Key werden ebenfalls wiederhergestellt.</p>
+        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Sicherung wiederherstellen (upload)</h3>
+        <p class="text-sm text-slate-400">JSON-Sicherungsdatei einspielen. Bestehende Einträge werden aktualisiert, fehlende neu angelegt. Visu, NavLinks, Icons und alle weiteren Konfigurationsdaten werden ebenfalls wiederhergestellt.</p>
         <input type="file" accept=".json" @change="onImportFile" class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
         <div v-if="importResult" :class="['p-3 rounded-lg text-sm', importResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ importResult.text }}</div>
+      </div>
+
+      <!-- Datenbanksicherung erstellen (download) -->
+      <div class="card p-5 flex flex-col gap-3">
+        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Datenbanksicherung erstellen (download)</h3>
+        <p class="text-sm text-slate-400">Vollständige SQLite-Datenbank (inkl. Historiendaten und aller Konfigurationen) als Datei sichern.</p>
+        <button @click="doExportDb" class="btn-secondary">SQLite herunterladen</button>
+      </div>
+
+      <!-- Datenbank wiederherstellen (upload) -->
+      <div class="card p-5 flex flex-col gap-3">
+        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Datenbank wiederherstellen (upload)</h3>
+        <p class="text-sm text-slate-400">SQLite-Datenbankdatei hochladen und einspielen.</p>
+        <div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-600 dark:text-amber-400 flex flex-col gap-1">
+          <p class="font-semibold">⚠ Achtung — diese Aktion überschreibt alle aktuellen Daten!</p>
+          <ul class="list-disc list-inside text-xs mt-1 space-y-0.5">
+            <li>Alle aktuellen Objekte, Verknüpfungen, Adapter, Visu, Logikblätter werden ersetzt</li>
+            <li>Die Historiendaten werden durch den Inhalt der hochgeladenen Datei ersetzt</li>
+            <li>Adapter und Logik-Engine werden nach dem Restore neu gestartet</li>
+            <li>Nicht in der Sicherung enthaltene Daten gehen verloren</li>
+          </ul>
+        </div>
+        <input type="file" accept=".sqlite,.db" @change="onImportDbFile" class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
+        <div v-if="importDbResult" :class="['p-3 rounded-lg text-sm', importDbResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ importDbResult.text }}</div>
+      </div>
+
+      <!-- Autobackup -->
+      <div class="card p-5 flex flex-col gap-3">
+        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Autobackup</h3>
+        <p class="text-sm text-slate-400">Täglich automatische JSON-Sicherung aller Konfigurationsdaten (Adapter, Objekte, Logikmodul, Visu, Icons usw.). Die Sicherungen werden lokal im Datenverzeichnis gespeichert.</p>
+        <div class="flex flex-col gap-3">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" v-model="autobackupCfg.enabled" @change="saveAutobackupConfig" class="w-4 h-4 rounded accent-blue-500" />
+            <span class="text-sm text-slate-600 dark:text-slate-300">Autobackup aktivieren</span>
+          </label>
+          <div v-if="autobackupCfg.enabled" class="flex flex-col gap-2 pl-6 border-l-2 border-blue-500/30">
+            <div class="form-group">
+              <label class="label">Uhrzeit der täglichen Sicherung</label>
+              <select v-model.number="autobackupCfg.hour" @change="saveAutobackupConfig" class="input text-sm">
+                <option v-for="h in 24" :key="h-1" :value="h-1">{{ String(h-1).padStart(2,'0') }}:00 Uhr</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="label">Anzahl Sicherungen aufbewahren (Tage)</label>
+              <select v-model.number="autobackupCfg.retention_days" @change="saveAutobackupConfig" class="input text-sm">
+                <option v-for="d in 30" :key="d" :value="d">{{ d }} {{ d === 1 ? 'Tag' : 'Tage' }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="runAutobackupNow" :disabled="autobackupRunning" class="btn-secondary btn-sm">
+              <Spinner v-if="autobackupRunning" size="sm" />
+              Jetzt sichern
+            </button>
+          </div>
+          <div v-if="autobackupMsg" :class="['p-3 rounded-lg text-sm', autobackupMsg.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ autobackupMsg.text }}</div>
+        </div>
+      </div>
+
+      <!-- Autobackup wiederherstellen -->
+      <div class="card p-5 flex flex-col gap-3">
+        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Autobackup wiederherstellen</h3>
+        <p class="text-sm text-slate-400">Eine gespeicherte Autobackup-Sicherung auswählen und einspielen (Upsert-Semantik — wie bei der regulären Wiederherstellung).</p>
+        <div v-if="autobackupList.length === 0" class="text-sm text-slate-500 italic">Keine Autobackup-Sicherungen vorhanden.</div>
+        <div v-else class="flex flex-col gap-2">
+          <div class="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-600 dark:text-amber-400 flex flex-col gap-1">
+            <p class="font-semibold">⚠ Hinweis zur Wiederherstellung</p>
+            <ul class="list-disc list-inside text-xs mt-1 space-y-0.5">
+              <li>Bestehende Einträge werden aktualisiert, fehlende neu angelegt</li>
+              <li>Einträge, die seit der Sicherung gelöscht wurden, bleiben erhalten</li>
+              <li>Für einen vollständigen Restore: zuerst Factory-Reset, dann wiederherstellen</li>
+            </ul>
+          </div>
+          <div class="form-group">
+            <label class="label">Sicherung auswählen</label>
+            <select v-model="selectedAutobackup" class="input text-sm">
+              <option value="">— bitte wählen —</option>
+              <option v-for="entry in autobackupList" :key="entry.name" :value="entry.name">
+                {{ formatAutobackupName(entry.name) }} ({{ formatBytes(entry.size_bytes) }})
+              </option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="restoreAutobackup" :disabled="!selectedAutobackup || autobackupRestoring" class="btn-primary btn-sm">
+              <Spinner v-if="autobackupRestoring" size="sm" color="white" />
+              Wiederherstellen
+            </button>
+          </div>
+        </div>
+        <div v-if="autobackupRestoreMsg" :class="['p-3 rounded-lg text-sm', autobackupRestoreMsg.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ autobackupRestoreMsg.text }}</div>
       </div>
 
       <!-- KNX Projekt Import -->
@@ -267,7 +356,7 @@
     </div>
 
     <!-- ── History Backend ── -->
-    <div v-if="activeTab === 'history' && !isDemo" class="flex flex-col gap-4 max-w-2xl">
+    <div v-if="activeTab === 'history'" class="flex flex-col gap-4 max-w-2xl" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
       <div class="card">
         <div class="card-header">
           <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Historie DB</h3>
@@ -453,8 +542,17 @@
       </div>
     </div>
 
+    <!-- ── Hierarchie ── -->
+    <div v-if="activeTab === 'hierarchy'" class="flex flex-col gap-4" data-testid="hierarchy-tab">
+      <div class="card">
+        <div class="card-body" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
+          <HierarchyManager />
+        </div>
+      </div>
+    </div>
+
     <!-- ── Icons Library ── -->
-    <div v-if="activeTab === 'icons' && !isDemo" class="flex flex-col gap-4" data-testid="icons-tab">
+    <div v-if="activeTab === 'icons'" class="flex flex-col gap-4" data-testid="icons-tab" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
 
       <!-- Toolbar -->
       <div class="flex flex-wrap items-center gap-3">
@@ -615,7 +713,7 @@
     </div>
 
     <!-- ── Links ── -->
-    <div v-if="activeTab === 'links' && auth.isAdmin && !isDemo" class="flex flex-col gap-4 max-w-lg" data-testid="links-tab">
+    <div v-if="activeTab === 'links'" class="flex flex-col gap-4 max-w-lg" data-testid="links-tab" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
       <div class="card">
         <div class="card-header flex items-center justify-between">
           <div>
@@ -700,7 +798,7 @@
     </div>
 
     <!-- ── Danger Zone ── -->
-    <div v-if="activeTab === 'dangerzone' && auth.isAdmin && !isDemo" class="flex flex-col gap-4 max-w-lg">
+    <div v-if="activeTab === 'dangerzone'" class="flex flex-col gap-4 max-w-lg" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
       <div class="rounded-lg border border-red-500/40 bg-red-500/5 overflow-hidden">
         <div class="px-5 py-3 border-b border-red-500/30 flex items-center gap-2">
           <svg class="w-4 h-4 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -846,13 +944,14 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { authApi, adapterApi, configApi, knxprojApi, historySettingsApi, iconsApi, dpApi } from '@/api/client'
+import { authApi, adapterApi, configApi, autobackupApi, knxprojApi, historySettingsApi, iconsApi, dpApi } from '@/api/client'
 import { useNavLinksStore } from '@/stores/navLinks'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useTz } from '@/composables/useTz'
-import Badge          from '@/components/ui/Badge.vue'
-import Spinner        from '@/components/ui/Spinner.vue'
+import Badge            from '@/components/ui/Badge.vue'
+import Spinner          from '@/components/ui/Spinner.vue'
+import HierarchyManager from '@/components/HierarchyManager.vue'
 import Modal          from '@/components/ui/Modal.vue'
 import ConfirmDialog  from '@/components/ui/ConfirmDialog.vue'
 import IconPicker     from '@/components/ui/IconPicker.vue'
@@ -939,7 +1038,7 @@ onMounted(async () => {
 })
 
 watch(activeTab, (tab) => {
-  if (tab === 'history' && auth.isAdmin) {
+  if (tab === 'history') {
     loadHistorySettings()
     loadHistoryFilterDps()
   }
@@ -966,13 +1065,14 @@ async function saveTz() {
 const tabs = computed(() => [
   { id: 'general',      label: 'Allgemein' },
   { id: 'password',     label: 'Passwort' },
-  ...(auth.isAdmin ? [{ id: 'users', label: 'Benutzer' }] : []),
+  ...(auth.isAdmin || isDemo.value ? [{ id: 'users', label: 'Benutzer' }] : []),
   { id: 'apikeys',      label: 'API Keys' },
-  ...(auth.isAdmin && !isDemo.value ? [{ id: 'links', label: 'Links' }] : []),
+  { id: 'links',        label: 'Links' },
+  { id: 'hierarchy',    label: 'Hierarchie' },
   { id: 'importexport', label: 'Datenmanagement' },
   { id: 'icons',        label: 'Icons' },
-  ...(auth.isAdmin ? [{ id: 'history', label: 'Historie DB' }] : []),
-  ...(auth.isAdmin ? [{ id: 'dangerzone', label: 'Danger Zone' }] : []),
+  { id: 'history',      label: 'Historie DB' },
+  { id: 'dangerzone',   label: 'Danger Zone' },
 ])
 
 // ── History Backend ────────────────────────────────────────────────────────
@@ -1239,7 +1339,8 @@ async function doCreateKey() {
 async function deleteApiKey(id) { await authApi.deleteApiKey(id); await loadKeys() }
 
 // ── Sicherung / Wiederherstellung ──────────────────────────────────────────
-const importResult = ref(null)
+const importResult   = ref(null)
+const importDbResult = ref(null)
 
 function _ts() {
   const now = new Date()
@@ -1261,6 +1362,7 @@ async function doExportDb() {
   const a = document.createElement('a'); a.href = url; a.download = `obs_DB_${_ts()}.sqlite`; a.click()
   URL.revokeObjectURL(url)
 }
+
 async function onImportFile(e) {
   const file = e.target.files[0]; if (!file) return
   const text = await file.text()
@@ -1271,13 +1373,83 @@ async function onImportFile(e) {
     const lgTotal   = (data.logic_graphs_created ?? 0) + (data.logic_graphs_updated ?? 0)
     const lgInfo    = lgTotal > 0 ? `, ${lgTotal} Logikblätter` : ''
     const iconInfo  = (data.icons_imported ?? 0) > 0 ? `, ${data.icons_imported} Icons` : ''
-    importResult.value = { ok: true, text: `Wiederherstellung OK: ${data.datapoints_created + data.datapoints_updated} Objekte, ${data.bindings_created + data.bindings_updated} Verknüpfungen${gaInfo}${lgInfo}${iconInfo}` }
-    // FA API Key und Icons nach Wiederherstellung neu laden
+    const visuInfo  = (data.visu_nodes_upserted ?? 0) > 0 ? `, ${data.visu_nodes_upserted} Visu-Knoten` : ''
+    importResult.value = { ok: true, text: `Wiederherstellung OK: ${data.datapoints_created + data.datapoints_updated} Objekte, ${data.bindings_created + data.bindings_updated} Verknüpfungen${gaInfo}${lgInfo}${iconInfo}${visuInfo}` }
     await loadFaSettings()
     if ((data.icons_imported ?? 0) > 0) await loadIcons()
   } catch (err) {
     importResult.value = { ok: false, text: err.response?.data?.detail ?? 'Import fehlgeschlagen' }
   }
+}
+
+async function onImportDbFile(e) {
+  const file = e.target.files[0]; if (!file) return
+  importDbResult.value = null
+  try {
+    const { data } = await configApi.importDb(file)
+    importDbResult.value = { ok: true, text: `Datenbankwiederherstellung OK: ${data.message ?? ''} (${data.adapters_restarted ?? 0} Adapter neu gestartet). Bitte Seite neu laden.` }
+  } catch (err) {
+    importDbResult.value = { ok: false, text: err.response?.data?.detail ?? 'Datenbankwiederherstellung fehlgeschlagen' }
+  }
+}
+
+// ── Autobackup ──────────────────────────────────────────────────────────────
+const autobackupCfg        = ref({ enabled: false, hour: 3, retention_days: 7 })
+const autobackupList       = ref([])
+const selectedAutobackup   = ref('')
+const autobackupRunning    = ref(false)
+const autobackupRestoring  = ref(false)
+const autobackupMsg        = ref(null)
+const autobackupRestoreMsg = ref(null)
+
+async function loadAutobackupConfig() {
+  try { const { data } = await autobackupApi.getConfig(); autobackupCfg.value = data } catch {}
+}
+
+async function loadAutobackupList() {
+  try { const { data } = await autobackupApi.list(); autobackupList.value = data } catch {}
+}
+
+async function saveAutobackupConfig() {
+  try { await autobackupApi.setConfig(autobackupCfg.value) } catch {}
+}
+
+async function runAutobackupNow() {
+  autobackupRunning.value = true; autobackupMsg.value = null
+  try {
+    const { data } = await autobackupApi.runNow()
+    autobackupMsg.value = { ok: true, text: `Sicherung erstellt: ${formatAutobackupName(data.name)}` }
+    await loadAutobackupList()
+  } catch (err) {
+    autobackupMsg.value = { ok: false, text: err.response?.data?.detail ?? 'Sicherung fehlgeschlagen' }
+  } finally { autobackupRunning.value = false }
+}
+
+async function restoreAutobackup() {
+  if (!selectedAutobackup.value) return
+  autobackupRestoring.value = true; autobackupRestoreMsg.value = null
+  try {
+    const { data } = await autobackupApi.restore(selectedAutobackup.value)
+    const errInfo = data.errors?.length ? ` (${data.errors.length} Warnung(en))` : ''
+    autobackupRestoreMsg.value = { ok: true, text: `Wiederherstellung OK: ${data.datapoints} Objekte, ${data.bindings} Verknüpfungen, ${data.visu_nodes} Visu-Knoten${errInfo}` }
+    await loadFaSettings()
+    await loadIcons()
+  } catch (err) {
+    autobackupRestoreMsg.value = { ok: false, text: err.response?.data?.detail ?? 'Wiederherstellung fehlgeschlagen' }
+  } finally { autobackupRestoring.value = false }
+}
+
+function formatAutobackupName(name) {
+  // "20240506-0300" → "06.05.2024 03:00"
+  const m = name.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/)
+  if (!m) return name
+  return `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]} Uhr`
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 // ── KNX Projekt Import ──────────────────────────────────────────────────────
@@ -1342,6 +1514,8 @@ onMounted(async () => {
   await loadKeys()
   await loadKnxGaCount()
   await loadKnxAdapterInstances()
+  await loadAutobackupConfig()
+  await loadAutobackupList()
 })
 // Note: timezone onMounted is defined above (merged there)
 

@@ -4,7 +4,9 @@ import { Chart, LineController, LineElement, PointElement, LinearScale, Filler, 
 import { history } from '@/api/client'
 import { useIcons } from '@/composables/useIcons'
 import { useDatapointsStore } from '@/stores/datapoints'
+import { useWebSocket } from '@/composables/useWebSocket'
 import type { DataPointValue } from '@/types'
+import { TIME_RANGE_PRESETS, DEFAULT_TIME_RANGE, resolveTimeRange } from '@/widgets/Chart/timeRangePresets'
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Filler, Tooltip)
 
@@ -41,10 +43,17 @@ const { getSvg, isSvgIcon, svgIconName } = useIcons()
 const mode          = computed<DisplayMode>(() => (props.config.mode as DisplayMode | undefined) ?? 'value')
 const widgetLabel   = computed(() => (props.config.label as string | undefined) ?? '')
 const rules         = computed<Rule[]>(() => (props.config.rules as Rule[] | undefined) ?? [])
-const historyHours  = computed(() => (props.config.history_hours as number | undefined) ?? 24)
 const secondaryDpId = computed(() => (props.config.secondary_dp_id as string | undefined) ?? '')
 const secLabel      = computed(() => (props.config.secondary_label as string | undefined) ?? '')
 const secDecimals   = computed(() => (props.config.secondary_decimals as number | undefined) ?? 1)
+
+function configHistoryTimeRange(config: Record<string, unknown>): string {
+  if (config.history_time_range && typeof config.history_time_range === 'string') return config.history_time_range as string
+  return DEFAULT_TIME_RANGE
+}
+
+// Zeitbereich nur für das Modal — wird beim Öffnen auf den Config-Wert zurückgesetzt
+const modalTimeRange = ref(configHistoryTimeRange(props.config))
 
 // ── Rule evaluation ────────────────────────────────────────────────────────────
 
@@ -169,11 +178,15 @@ const secondaryDisplay = computed(() => {
 
 // ── History chart ──────────────────────────────────────────────────────────────
 
+const ws = useWebSocket()
+
 const canvasEl      = ref<HTMLCanvasElement | null>(null)
 const modalOpen     = ref(false)
 const modalCanvasEl = ref<HTMLCanvasElement | null>(null)
-let miniChart:  Chart | null = null
-let modalChart: Chart | null = null
+let miniChart:    Chart | null = null
+let modalChart:   Chart | null = null
+let wsOff:        (() => void) | null = null
+let reloadTimer:  ReturnType<typeof setTimeout> | null = null
 let histUnit = ''
 
 function fmtMs(ms: number): string {
@@ -194,29 +207,55 @@ function makeDataset(color: string) {
   }
 }
 
-async function fetchPoints() {
+async function fetchPoints(timeRange: string) {
   if (!props.datapointId || props.editorMode) return { pts: [], minMs: 0, maxMs: 0 }
-  const now     = new Date()
-  const fromDate = new Date(now.getTime() - historyHours.value * 3_600_000)
-  const data    = await history.query(props.datapointId, fromDate.toISOString(), now.toISOString())
+  const { from: fromDate, to: toDate } = resolveTimeRange(timeRange)
+  const data = await history.query(props.datapointId, fromDate.toISOString(), toDate.toISOString())
   histUnit = data[0]?.u ?? ''
   return {
     pts:   data.map(d => ({ x: new Date(d.ts).getTime(), y: Number(d.v) })),
     minMs: fromDate.getTime(),
-    maxMs: now.getTime(),
+    maxMs: toDate.getTime(),
   }
 }
 
+// Mini-Chart: immer den konfigurierten Zeitbereich verwenden
 async function updateMiniChart() {
-  if (mode.value !== 'history' || !miniChart) return
-  const { pts, minMs, maxMs } = await fetchPoints()
+  if (mode.value !== 'history') return
+  const { pts, minMs, maxMs } = await fetchPoints(configHistoryTimeRange(props.config))
+  if (!miniChart) return
   miniChart.data.datasets[0].data = pts
   const xAxis = miniChart.options.scales?.x as any
   if (xAxis) { xAxis.min = minMs; xAxis.max = maxMs }
   miniChart.update()
 }
 
+// Modal-Chart: den im Modal gewählten Zeitbereich verwenden
+async function updateModalChart() {
+  if (!modalChart || !modalOpen.value) return
+  const { pts, minMs, maxMs } = await fetchPoints(modalTimeRange.value)
+  modalChart.data.datasets[0].data = pts
+  const xAxis = modalChart.options.scales?.x as any
+  if (xAxis) { xAxis.min = minMs; xAxis.max = maxMs }
+  modalChart.update()
+}
+
 onMounted(() => {
+  // Auf WS-Nachrichten hören: wenn der eigene Datenpunkt aktualisiert wird,
+  // wird updateMiniChart() nach 2 s (debounced) aufgerufen. Das Backend hat
+  // den Wert bis dahin sicher gespeichert, sodass der Chart saubere Daten
+  // ohne Artefakte lädt.
+  wsOff = ws.onMessage((msg) => {
+    if (mode.value !== 'history' || props.editorMode) return
+    if (!msg.id || msg.v === undefined || msg.id !== props.datapointId) return
+    if (reloadTimer) clearTimeout(reloadTimer)
+    reloadTimer = setTimeout(() => {
+      reloadTimer = null
+      updateMiniChart()
+      updateModalChart()
+    }, 2_000)
+  })
+
   if (mode.value !== 'history' || !canvasEl.value) return
   miniChart = new Chart(canvasEl.value, {
     type: 'line',
@@ -233,13 +272,17 @@ onMounted(() => {
   updateMiniChart()
 })
 
-watch(() => [props.datapointId, historyHours.value], updateMiniChart)
+watch(() => props.datapointId, updateMiniChart)
+watch(() => props.config.history_time_range, updateMiniChart)
+watch(modalTimeRange, updateModalChart)
 
 watch(modalOpen, async (open) => {
   if (!open) { modalChart?.destroy(); modalChart = null; return }
+  // Zeitbereich im Modal auf den aktuellen Config-Default zurücksetzen
+  modalTimeRange.value = configHistoryTimeRange(props.config)
   await new Promise<void>(r => setTimeout(r, 50))
   if (!modalCanvasEl.value) return
-  const { pts, minMs, maxMs } = await fetchPoints()
+  const { pts, minMs, maxMs } = await fetchPoints(modalTimeRange.value)
   modalChart = new Chart(modalCanvasEl.value, {
     type: 'line',
     data: { datasets: [{ ...makeDataset(activeColor.value), data: pts }] },
@@ -269,7 +312,12 @@ watch(modalOpen, async (open) => {
   })
 })
 
-onUnmounted(() => { miniChart?.destroy(); modalChart?.destroy() })
+onUnmounted(() => {
+  wsOff?.()
+  if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null }
+  miniChart?.destroy()
+  modalChart?.destroy()
+})
 
 const quality = computed(() => props.value?.q ?? null)
 </script>
@@ -388,11 +436,11 @@ const quality = computed(() => props.value?.q ?? null)
       @click.self="modalOpen = false"
     >
       <div class="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-4 w-[90vw] max-w-2xl h-[60vh] flex flex-col">
-        <div class="flex items-center justify-between mb-3 shrink-0">
-          <div class="flex items-center gap-2">
+        <div class="flex items-center justify-between mb-3 shrink-0 gap-3">
+          <div class="flex items-center gap-2 min-w-0">
             <span
               v-if="activeIcon && !isSvgIcon(activeIcon)"
-              class="text-2xl leading-none select-none"
+              class="text-2xl leading-none select-none shrink-0"
               :style="{ color: activeColor }"
             >{{ activeIcon }}</span>
             <span
@@ -401,12 +449,21 @@ const quality = computed(() => props.value?.q ?? null)
               :style="{ color: activeColor }"
               v-html="coloredSvg"
             />
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ widgetLabel || 'Verlauf' }}</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">{{ widgetLabel || 'Verlauf' }}</span>
           </div>
-          <button
-            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
-            @click="modalOpen = false"
-          >✕</button>
+          <div class="flex items-center gap-2 shrink-0">
+            <select
+              v-model="modalTimeRange"
+              class="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+              title="Zeitbereich wählen"
+            >
+              <option v-for="p in TIME_RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+            <button
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
+              @click="modalOpen = false"
+            >✕</button>
+          </div>
         </div>
         <div class="flex-1 min-h-0">
           <canvas ref="modalCanvasEl" class="w-full h-full" />

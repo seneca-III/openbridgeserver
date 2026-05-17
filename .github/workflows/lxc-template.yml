@@ -40,7 +40,7 @@ jobs:
           else
             VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0")
           fi
-          TEMPLATE_FILE="${{ env.BASE_OS }}-${{ env.TEMPLATE_NAME }}_${VERSION}_${{ matrix.arch }}.tar.zst"
+          TEMPLATE_FILE="${{ env.TEMPLATE_NAME }}-lxc_${VERSION}_${{ matrix.arch }}.tar.zst"
           APP_BUNDLE_FILE="${{ env.TEMPLATE_NAME }}-app-bundle_${VERSION}.tar.gz"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "template_file=$TEMPLATE_FILE" >> "$GITHUB_OUTPUT"
@@ -418,6 +418,7 @@ jobs:
           set -euo pipefail
 
           MQTT_PASSWORD=$(python3 -c "import secrets, string; print(''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(32)))")
+          JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 
           mosquitto_passwd -c -b /etc/mosquitto/passwd obs "$MQTT_PASSWORD"
           chmod 640 /etc/mosquitto/passwd
@@ -432,6 +433,7 @@ jobs:
           OBS_MOSQUITTO__RELOAD_COMMAND=systemctl reload mosquitto
           OBS_MOSQUITTO__SERVICE_USERNAME=obs
           OBS_MOSQUITTO__SERVICE_PASSWORD=$MQTT_PASSWORD
+          OBS_SECURITY__JWT_SECRET=$JWT_SECRET
           EOF
           FIRSTBOOT
           chmod +x /opt/obs/obs-first-boot.sh
@@ -556,7 +558,7 @@ jobs:
           bundle_checksum = None
 
           for f in sorted(glob.glob('artifacts/**/*.sha512', recursive=True)):
-              content = read(f)
+              content = read(f).split()[0]
               name = os.path.basename(f).removesuffix('.sha512')
               if 'app-bundle' in name:
                   bundle_checksum = content

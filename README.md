@@ -12,7 +12,7 @@ open bridge verbindet verschiedene Gebäudetechnik-Protokolle zu einem einheitli
 
 | Funktion | Beschreibung |
 |---|---|
-| **Protokolle** | KNX/IP (Tunneling + Routing), Modbus TCP, Modbus RTU, 1-Wire, externes MQTT, Home Assistant, Zeitschaltuhr |
+| **Protokolle** | KNX/IP (Tunneling + Routing + KNX IP Secure), Modbus TCP, Modbus RTU, 1-Wire, externes MQTT, Home Assistant, Zeitschaltuhr |
 | **Mehrere Instanzen** | Beliebig viele Instanzen pro Protokoll (z. B. 2× KNX, 3× Modbus TCP) |
 | **Protokoll-Brücke** | Ein KNX-Wert wird automatisch in ein Modbus-Register geschrieben — und umgekehrt |
 | **Logik-Editor** | Visuelle Automatisierungslogik ohne Programmierung: 35+ Blocktypen, Zeitpläne, Formeln, Python-Skripte, Benachrichtigungen, HTTP-Anfragen, Sonnenstand |
@@ -29,62 +29,28 @@ open bridge verbindet verschiedene Gebäudetechnik-Protokolle zu einem einheitli
 
 ## Inhaltsverzeichnis
 
-1. [Schnellstart — Docker](#schnellstart--docker)
-2. [Schnellstart — Proxmox LXC](#schnellstart--proxmox-lxc)
-3. [Schnellstart — Direkt](#schnellstart--direkt)
-4. [Konfiguration](#konfiguration)
-5. [Wie funktioniert open bridge?](#wie-funktioniert-open-bridge)
-6. [Datenpunkte](#datenpunkte)
-7. [Verknüpfungen (Bindings)](#verknüpfungen-bindings)
-8. [Suche](#suche)
-9. [Adapter](#adapter)
-10. [Verlauf (History)](#verlauf-history)
-11. [Änderungsprotokoll (RingBuffer)](#änderungsprotokoll-ringbuffer)
-12. [Sicherung & Wiederherstellung](#sicherung--wiederherstellung)
-13. [Systemstatus](#systemstatus)
-14. [Live-Verbindung (WebSocket)](#live-verbindung-websocket)
-15. [Logik-Editor](#logik-editor)
-16. [Adapter-Konfiguration](#adapter-konfiguration)
-17. [MQTT-Topics](#mqtt-topics)
-18. [Datentypen](#datentypen)
-19. [Einstellungen](#einstellungen)
-20. [Hilfsskripte](#hilfsskripte)
-21. [Entwicklung](#entwicklung)
+1. [Schnellstart — Proxmox LXC](#schnellstart--proxmox-lxc)
+2. [Konfiguration](#konfiguration)
+3. [Wie funktioniert open bridge?](#wie-funktioniert-open-bridge)
+4. [Datenpunkte](#datenpunkte)
+5. [Verknüpfungen (Bindings)](#verknüpfungen-bindings)
+6. [Suche](#suche)
+7. [Adapter](#adapter)
+8. [Verlauf (History)](#verlauf-history)
+9. [Änderungsprotokoll (RingBuffer)](#änderungsprotokoll-ringbuffer)
+10. [Sicherung & Wiederherstellung](#sicherung--wiederherstellung)
+11. [Systemstatus](#systemstatus)
+12. [Live-Verbindung (WebSocket)](#live-verbindung-websocket)
+13. [Logik-Editor](#logik-editor)
+14. [Adapter-Konfiguration](#adapter-konfiguration)
+15. [MQTT-Topics](#mqtt-topics)
+16. [Datentypen](#datentypen)
+17. [Einstellungen](#einstellungen)
+18. [Hilfsskripte](#hilfsskripte)
+19. [Visualisierung (Visu)](#visualisierung-visu)
+   - [Grundriss- und Anlagenschema-Widget](#grundriss--und-anlagenschema-widget)
+20. [Entwicklung](#entwicklung)
    - [Lokale Entwicklung mit PyCharm](#lokale-entwicklung-mit-pycharm)
-
----
-
-## Schnellstart — Docker
-
-```bash
-# 1. Herunterladen
-git clone https://github.com/abeggled/openbridgeserver
-cd openbridgeserver
-
-# 2. Zugangsdaten einrichten
-cp .env.example .env
-# .env öffnen und mindestens setzen:
-#   OBS_JWT_SECRET        → zufällige Zeichenkette, min. 32 Zeichen
-#   OBS_MQTT_PASSWORD     → Passwort für den internen MQTT-Dienst — BITTE ÄNDERN!
-
-# 3. Starten
-docker compose up -d
-
-# 4. Prüfen
-curl http://localhost:8080/api/v1/system/health
-# → {"status": "ok", "version": "0.1.0"}
-```
-
-**Standardzugang:** Benutzername `admin`, Passwort `admin`
-⚠️ Das Passwort sofort nach der ersten Anmeldung ändern (Einstellungen → Passwort).
-
-**Erreichbare Dienste:**
-
-| Dienst | Adresse | Protokoll |
-|---|---|---|
-| **open bridge server** Weboberfläche + API | http://localhost:8080 | HTTP |
-| Mosquitto MQTT (intern) | localhost:1883 | MQTT |
-| Mosquitto MQTT über WebSocket | localhost:9001 | MQTT/WS |
 
 ---
 
@@ -120,39 +86,17 @@ Das LXC-Template enthält ein vollständiges Ubuntu 26.04-System mit **open brid
 **Standardzugang:** Benutzername `admin`, Passwort `admin`
 ⚠️ Das Passwort sofort nach der ersten Anmeldung ändern (Einstellungen → Passwort).
 
-**Konfiguration anpassen** (optional):
+**Sicherheitskonfiguration** (erforderlich):
 
 ```bash
 # Umgebungsvariablen in /etc/obs.env setzen, z. B.:
 OBS_MQTT__HOST=192.168.1.10
-OBS_SECURITY__JWT_SECRET=mein-geheimes-passwort
+# Wird im LXC-Template automatisch beim ersten Start gesetzt (zufällig, pro Container).
+# Nur bei manuellem Override setzen:
+OBS_SECURITY__JWT_SECRET=<mindestens-32-zufällige-zeichen>
 
 # Dienst neu starten
 systemctl restart obs
-```
-
----
-
-## Schnellstart — Direkt
-
-**Voraussetzungen:** Python 3.11 oder neuer, laufender Mosquitto-Broker (oder anderer MQTT-Broker)
-
-```bash
-# 1. Herunterladen + virtuelle Umgebung anlegen
-git clone https://github.com/abeggled/openbridgeserver
-cd openbridgeserver
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 2. Abhängigkeiten installieren
-pip install -r requirements.txt
-
-# 3. Konfigurieren
-cp config.example.yaml config.yaml
-# config.yaml anpassen: mqtt.host und security.jwt_secret setzen
-
-# 4. Starten
-python -m obs
 ```
 
 ---
@@ -181,8 +125,10 @@ database:
   path: /data/obs.db      # Datenbankdatei
 
 ringbuffer:
-  storage: disk               # Änderungsprotokoll: memory (RAM) oder disk (Datei)
+  storage: file               # Änderungsprotokoll: file-only (Datei)
   max_entries: 10000          # Maximale Anzahl Einträge
+  max_file_size_bytes: null   # Optional: harte Dateigrenze für den Ringbuffer
+  max_age: null               # Optional: maximale Eintrags-Alterung in Sekunden
 
 security:
   jwt_secret: changeme        # Sitzungsschlüssel — unbedingt ändern!
@@ -445,11 +391,25 @@ Der RingBuffer speichert die letzten N Wertänderungen als Protokoll. In der Web
 
 ```
 GET  /api/v1/ringbuffer?q=&adapter=&from=&limit=   # Einträge abfragen
+POST /api/v1/ringbuffer/query                       # v2 Query-DSL (Filtergruppen + Pagination + Sortierung)
+POST /api/v1/ringbuffer/export/csv                  # CSV-Export der vollständigen gefilterten Ergebnismenge
 GET  /api/v1/ringbuffer/stats                       # Anzahl Einträge, Kapazität
-POST /api/v1/ringbuffer/config                      # Speicherart + Kapazität ändern
+POST /api/v1/ringbuffer/config                      # file-only + Kapazität ändern
 ```
 
 Der Parameter `q` durchsucht sowohl den Namen als auch die ID des Datenpunkts.
+
+`POST /api/v1/ringbuffer/query` verwendet eine Filter-DSL mit klarer Semantik:
+- `filters.adapters.any_of`: OR innerhalb der Adapterliste.
+- `filters.values`: typbewusste Wertfilter (`eq/ne/gt/gte/lt/lte/between/contains/regex`) passend zu `data_type`.
+- `filters.metadata`: filterbare Snapshot-Metadaten aus DataPoint/Binding-Kontext (`tags`, `adapter_types`, `group_addresses`, `topics`, `entity_ids`, `register_types`, `register_addresses`).
+- Filtergruppen (`time`, `adapters`, `datapoints`, `values`, `metadata`, `q`) werden per AND kombiniert.
+- Zeitfilter unterstützen offene Ränder (`from` ohne `to`, `to` ohne `from`) und die Kombination aus absoluten Grenzen (`from`/`to`) plus relativen Offsets (`from_relative_seconds`/`to_relative_seconds`).
+- Pagination über `pagination.limit` + `pagination.offset`, Sortierung über `sort.field` (`id|ts`) und `sort.order` (`asc|desc`).
+- Das versionierte Metadatenmodell ist dokumentiert in `docs/ringbuffer-metadata-model-v1.md` (`metadata_version: 1`).
+
+`POST /api/v1/ringbuffer/export/csv` nutzt denselben Request-Body wie `/query`, exportiert aber immer die vollständige gefilterte Ergebnismenge (Pagination der UI wird ignoriert).  
+CSV-Spalten: `id`, `ts`, `datapoint_id`, `name`, `topic`, `old_value_json`, `new_value_json`, `source_adapter`, `quality`, `metadata_version`, `metadata_json`.
 
 ---
 
@@ -796,15 +756,79 @@ Zeigt berechnete Zwischenwerte direkt auf den Blöcken an — live und automatis
 
 ### KNX-Adapter
 
-**Instanz-Konfiguration:**
+**Instanz-Konfiguration — Grundparameter:**
 
 | Feld | Werte | Beschreibung |
 |---|---|---|
-| `connection_type` | `tunneling` / `routing` | Tunneling = direkte Verbindung zur Zentrale; Routing = IP-Multicast |
+| `connection_type` | `tunneling` / `tunneling_secure` / `routing` / `routing_secure` | Verbindungstyp (siehe unten) |
 | `host` | IP-Adresse | IP der KNX/IP-Zentrale (Tunneling) oder Multicast-Adresse (Routing) |
-| `port` | Standard `3671` | Port der KNX/IP-Zentrale (manche Geräte: `3674`) |
-| `individual_address` | z. B. `1.1.210` | Eigene KNX-Adresse (Tunneling) |
-| `local_ip` | IP-Adresse | Lokale Netzwerkschnittstelle (nur Routing, optional) |
+| `port` | Standard `3671` | Port der KNX/IP-Zentrale |
+| `individual_address` | z. B. `1.1.210` | Eigene KNX-Adresse des open bridge Servers |
+| `local_ip` | IP-Adresse | Lokale Netzwerkschnittstelle (optional). Bei Routing/Routing Secure: wählt die Netzwerkkarte für Multicast — bei mehreren Netzwerkkarten **empfohlen**. Bei Tunneling/Tunneling Secure: bindet den Socket an eine bestimmte Schnittstelle — meist nur bei Mehrfach-Netzwerkkarten nötig. Leer lassen = automatische Auswahl. |
+
+**Verbindungstypen:**
+
+| `connection_type` | Beschreibung |
+|---|---|
+| `tunneling` | UDP-Tunneling zur KNX/IP-Zentrale (Standard) |
+| `tunneling_secure` | KNX IP Secure Tunneling (verschlüsselt, TCP) |
+| `routing` | IP-Multicast-Routing |
+| `routing_secure` | KNX IP Secure Routing (verschlüsselt, Multicast) |
+
+**KNX IP Secure — Keyfile-Modus (empfohlen)**
+
+Der einfachste Weg für KNX IP Secure ist der Import der `.knxkeys`-Datei aus ETS:
+
+1. In ETS: **Sicherheit → Schlüsselsicherung exportieren** → `.knxkeys`-Datei speichern
+2. In open bridge server: **Einstellungen → Adapter → KNX-Instanz bearbeiten → Keyfile hochladen**
+3. Keyfile-Passwort eingeben — open bridge server zeigt alle verfügbaren Tunnel mit PA, User-ID und Anzahl gesicherter Gruppenadressen
+4. Gewünschten Tunnel wählen → `individual_address` wird automatisch gesetzt
+5. `connection_type` auf `tunneling_secure` (oder `routing_secure`) setzen
+
+| Feld | Beschreibung |
+|---|---|
+| `knxkeys_file_path` | Wird automatisch gesetzt nach dem Hochladen der Keyfile |
+| `knxkeys_password` | Passwort-Feld — Passwort zur `.knxkeys`-Datei |
+| `individual_address` | PA des gewählten Tunnels (aus der Tunnel-Liste) |
+
+**KNX IP Secure — Manueller Modus** (nur wenn kein Keyfile vorhanden):
+
+Für `tunneling_secure`:
+
+| Feld | Werte | Beschreibung |
+|---|---|---|
+| `user_id` | `1`–`127`, Standard `2` | Benutzer-ID am KNX/IP-Gateway |
+| `user_password` | Passwort-Feld | Benutzerpasswort |
+| `device_authentication_password` | Passwort-Feld | Geräte-Authentifizierungspasswort |
+
+Für `routing_secure`:
+
+| Feld | Werte | Beschreibung |
+|---|---|---|
+| `backbone_key` | Passwort-Feld | 128-Bit Backbone-Schlüssel als Hex-String (32 Zeichen, z. B. `0102030405060708090a0b0c0d0e0f10`; Trennzeichen `:` und Leerzeichen werden ignoriert) |
+
+> **Hinweis:** Sind `knxkeys_file_path` und `knxkeys_password` gesetzt, haben sie Vorrang vor den manuellen Feldern. Alle Passwort-Felder werden in der Weboberfläche maskiert dargestellt.
+
+**Keyfile API** (für eigene Integrationen):
+
+```
+POST /api/v1/knx/keyfile   # .knxkeys hochladen, Tunnel-Liste zurückgeben
+DELETE /api/v1/knx/keyfile/{file_id}  # Keyfile löschen
+```
+
+Antwort des Upload-Endpunkts:
+```json
+{
+  "file_id": "uuid",
+  "file_path": "/data/knxkeys/uuid.knxkeys",
+  "project_name": "Mein KNX-Projekt",
+  "tunnels": [
+    { "individual_address": "1.1.100", "host": "1.1.50", "user_id": 2, "secure_ga_count": 15 },
+    { "individual_address": "1.1.101", "host": "1.1.50", "user_id": 3, "secure_ga_count": 15 }
+  ],
+  "backbone": null
+}
+```
 
 **Verknüpfungs-Konfiguration:**
 
@@ -1359,6 +1383,64 @@ Das Skript läuft bei Einzelfehlern durch. Am Ende werden Anzahl der erfolgreich
 
 ---
 
+## Visualisierung (Visu)
+
+Die Visu-Oberfläche ist eine separate Single-Page-App (erreichbar unter `/visu/`), mit der interaktive Bedienoberflächen — sogenannte **Visu-Seiten** — erstellt und im Vollbildmodus auf Displays oder Tablets angezeigt werden können. Jede Seite besteht aus frei platzierbaren Widgets, die Datenpunkte anzeigen oder steuern.
+
+### Grundriss- und Anlagenschema-Widget
+
+Das **Grundriss-Widget** ermöglicht es, einen Gebäudegrundriss oder ein Anlagenschema als interaktiven Hintergrund in eine Visu-Seite einzubinden. Auf dem Bild lassen sich Bereiche (Polygone) definieren, beschriften und mit Aktionen verknüpfen — sowie Mini-Widgets direkt auf dem Plan platzieren.
+
+#### Bild einbinden
+
+Im Konfigurations-Panel des Widgets kann ein Bild hochgeladen werden (SVG, PNG oder JPG). Das Bild wird als Base64-Data-URL direkt im Konfig-JSON gespeichert — kein separater Upload-Endpunkt nötig. Bei Dateien über 2 MB erscheint ein Hinweis; für Grundrisse wird **SVG empfohlen**, da es verlustfrei skaliert.
+
+Die **Rotation** des Bildes lässt sich in 90°-Schritten einstellen (0° / 90° / 180° / 270°), um Landscape-Grafiken direkt im Portrait-Modus verwenden zu können. 
+
+#### Bereiche (Polygone) zeichnen
+
+Mit dem Polygon-Werkzeug im Vollbild-Canvas lassen sich Bereiche auf dem Grundriss einzeichnen:
+
+1. Im Konfigurations-Panel auf **Neuer Bereich** klicken — der Fullscreen-Canvas öffnet sich.
+2. Durch Klicken auf die Arbeitsfläche werden Eckpunkte des Polygons gesetzt.
+3. Das Polygon wird geschlossen, indem der erste Punkt erneut angeklickt oder **Enter** gedrückt wird.
+
+Jedem Bereich können folgende Eigenschaften zugewiesen werden:
+
+| Eigenschaft | Beschreibung |
+|---|---|
+| **Name** | Bezeichnung des Bereichs (z. B. „Wohnzimmer") |
+| **Beschriftung anzeigen** | Schaltet die Textbeschriftung auf dem Plan ein/aus |
+| **Beschriftungsfarbe** | Textfarbe der Bereichsbeschriftung |
+| **Beschriftungsposition** | Durch Klick auf den Bereich im Canvas frei positionierbar |
+| **Aktion bei Klick** | `Keine` oder `Navigation` — bei Navigation: Ziel-Visu-Seite auswählen |
+
+#### Navigation zwischen Seiten
+
+Wenn als Klick-Aktion **Navigation** gewählt wird, öffnet sich eine Seitenauswahl. Die gewählte Visu-Seite wird beim Klick auf den Bereich im Viewer direkt aufgerufen. So lassen sich z. B. Etagenpläne miteinander verknüpfen — Klick auf einen Raum öffnet eine Detailansicht.
+
+#### Mini-Widgets platzieren
+
+Auf dem Grundriss können beliebige **Mini-Widgets** (z. B. Schalter, Temperaturanzeige, Dimmregler) direkt auf dem Plan positioniert werden:
+
+1. Im Konfigurations-Panel auf **Mini-Widget hinzufügen** klicken und den Widget-Typ wählen.
+2. Auf **Positionieren** klicken — der Fullscreen-Canvas öffnet sich.
+3. Das Mini-Widget per **Drag & Drop** an die gewünschte Stelle auf dem Plan ziehen.
+
+Für jedes Mini-Widget lassen sich einstellen:
+
+| Eigenschaft | Beschreibung |
+|---|---|
+| **Widget-Typ** | Beliebiger Visu-Widget-Typ (Schalter, Anzeige, Dimmer, …) |
+| **Datenpunkt** | Steuert den Wert des Widgets (Hauptdatenpunkt) |
+| **Status-Datenpunkt** | Optionaler zweiter Datenpunkt für den Anzeigestatus |
+| **Breite / Höhe** | Größe des Mini-Widgets in Pixeln |
+| **Sichtbar** | Blendet das Widget im Viewer ein oder aus |
+
+Mini-Widgets drehen sich beim Rotieren des Grundrisses nicht mit — sie bleiben immer aufrecht und werden anhand der Bildkoordinaten korrekt über dem Grundriss positioniert.
+
+---
+
 ## Entwicklung
 
 ### Lokale Entwicklung mit PyCharm
@@ -1447,6 +1529,16 @@ pytest tests/unit/ tests/adapters/
 pytest tests/
 ```
 
+#### Lint lokal (identisch zu GitHub CI)
+
+```bash
+# Nur prüfen (gleiches Verhalten wie CI-Job)
+./tools/lint.sh --check
+
+# Mit Auto-Fix
+./tools/lint.sh --fix
+```
+
 ---
 
 ### Starten ohne Docker
@@ -1479,6 +1571,9 @@ Die Datenbank wird automatisch aktualisiert — jede neue Version fügt fehlende
 | `datapoint_last_values` | Letzter bekannter Wert je Datenpunkt — wird beim Start wiederhergestellt |
 
 ---
+
+## Translations
+We use [Weblate](https://hosted.weblate.org/projects/open-bridge-server)  to support language translations. Contributions are always welcome.
 
 ## Lizenz
 
