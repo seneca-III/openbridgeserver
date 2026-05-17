@@ -7,8 +7,39 @@ const svgCache: Record<string, string> = {}  // name → normalised SVG string
 let listPromise: Promise<void> | null = null
 
 function normalizeSvg(raw: string): string {
+  // Parse and sanitize untrusted SVG to prevent script execution via v-html.
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(raw, 'image/svg+xml')
+  const root = doc.documentElement
+
+  if (!root || root.tagName.toLowerCase() !== 'svg') return ''
+
+  // Drop executable or externally embeddable content.
+  root.querySelectorAll('script,foreignObject,iframe,object,embed,audio,video').forEach((el) => el.remove())
+
+  for (const el of root.querySelectorAll('*')) {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase()
+      const value = attr.value.trim().toLowerCase()
+
+      // Remove event handlers and dangerous URL-bearing attributes.
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name)
+        continue
+      }
+      if ((name === 'href' || name === 'xlink:href' || name === 'src') && (
+        value.startsWith('javascript:') ||
+        value.startsWith('data:') ||
+        value.startsWith('http:') ||
+        value.startsWith('https:')
+      )) {
+        el.removeAttribute(attr.name)
+      }
+    }
+  }
+
   // Strip fixed width/height from root <svg> so CSS can control the size
-  return raw.replace(/<svg([^>]*)>/, (_, attrs: string) => {
+  return root.outerHTML.replace(/<svg([^>]*)>/, (_, attrs: string) => {
     const cleaned = attrs
       .replace(/\s+width="[^"]*"/g, '')
       .replace(/\s+height="[^"]*"/g, '')
