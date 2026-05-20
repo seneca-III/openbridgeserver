@@ -156,12 +156,14 @@ async def test_send_throttle_skips_second_write_within_interval(monkeypatch):
 @pytest.mark.asyncio
 async def test_handle_value_event_forwards_skip_binding_id(monkeypatch):
     router = _make_router([])
+    router._registry = SimpleNamespace(get=lambda _: SimpleNamespace(name="dp", data_type="UNKNOWN"))
     router._write_to_dest_bindings = AsyncMock()
 
     event = SimpleNamespace(
         datapoint_id=uuid.uuid4(),
         value=42,
         binding_id=uuid.uuid4(),
+        quality="good",
     )
     await router.handle_value_event(event)
 
