@@ -53,14 +53,14 @@ function getPercent(bar: BarConfig, idx: number): number {
 }
 
 function getDisplayValue(bar: BarConfig): string {
-  if (props.editorMode) return '—'
+  if (props.editorMode) return [bar.prefix, '—', bar.postfix].filter(Boolean).join(' ')
   const dp = dpStore.getValue(bar.dp_id)
   if (!dp) return '…'
   const v = typeof dp.v === 'number' ? dp.v : parseFloat(String(dp.v))
   if (isNaN(v)) return String(dp.v ?? '—')
   const formatted = v.toFixed(bar.decimals ?? 1)
   const unit = bar.postfix || dp.u || ''
-  return [bar.prefix, formatted, unit].filter(Boolean).join(' ')
+  return [bar.prefix, formatted, unit].filter(Boolean).join(' ')
 }
 
 // Background-size trick: expand the gradient to span the full track width
@@ -98,7 +98,7 @@ function fillStyle(pct: number): Record<string, string> {
       <template v-for="(bar, i) in bars" :key="i">
         <!-- Label (immer als Grid-Zelle, damit alle Balken bündig starten) -->
         <span
-          class="text-xs text-gray-400 dark:text-gray-400 truncate text-right"
+          class="text-xs text-gray-600 dark:text-gray-400 truncate text-right"
           style="max-width: 8rem"
         >{{ bar.label }}</span>
 
@@ -116,7 +116,7 @@ function fillStyle(pct: number): Record<string, string> {
 
         <!-- Wert -->
         <span
-          class="text-xs tabular-nums text-gray-200 dark:text-gray-200 text-right whitespace-nowrap"
+          class="text-xs tabular-nums text-gray-800 dark:text-gray-200 text-right whitespace-nowrap"
           data-testid="widget-value"
         >{{ showValue ? getDisplayValue(bar) : '' }}</span>
       </template>

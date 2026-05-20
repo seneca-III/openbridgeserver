@@ -173,29 +173,29 @@ const gradientPreview = (c: string[]) => {
               v-model="bar.label"
               type="text"
               placeholder="Bezeichnung"
-              class="flex-1 bg-transparent border-b border-gray-700 px-1 py-0.5 text-xs text-gray-100 focus:outline-none focus:border-blue-500"
+              class="flex-1 min-w-0 bg-transparent border-b border-gray-700 px-1 py-0.5 text-xs text-gray-100 focus:outline-none focus:border-blue-500"
             />
-            <div class="flex gap-0.5 ml-1 shrink-0">
+            <div class="flex gap-1 ml-1 shrink-0">
               <button
                 type="button"
-                class="text-gray-600 hover:text-gray-300 px-1 text-xs disabled:opacity-30"
+                class="text-gray-200 hover:text-white px-1 text-sm leading-none disabled:opacity-30"
                 title="Nach oben"
                 :disabled="i === 0"
                 @click="moveUp(i)"
               >↑</button>
               <button
                 type="button"
-                class="text-gray-600 hover:text-gray-300 px-1 text-xs disabled:opacity-30"
+                class="text-gray-200 hover:text-white px-1 text-sm leading-none disabled:opacity-30"
                 title="Nach unten"
                 :disabled="i === cfg.bars.length - 1"
                 @click="moveDown(i)"
               >↓</button>
               <button
                 type="button"
-                class="text-gray-500 hover:text-red-400 px-1 text-xs"
+                class="text-red-400 hover:text-red-200 px-1 text-sm leading-none"
                 title="Entfernen"
                 @click="removeBar(i)"
-              >🗑</button>
+              >×</button>
             </div>
           </div>
 
