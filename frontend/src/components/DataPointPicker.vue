@@ -4,11 +4,8 @@
  * Ruft /api/v1/search auf und gibt die gewählte ID zurück.
  */
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { datapoints } from '@/api/client'
 import type { DataPoint } from '@/types'
-
-const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: string | null   // DataPoint-UUID

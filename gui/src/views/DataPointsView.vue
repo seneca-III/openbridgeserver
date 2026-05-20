@@ -62,7 +62,7 @@
         <div class="min-w-56" data-testid="adapter-filter">
           <AdapterCombobox
             :model-value="filters.adapters"
-            placeholder="Alle Adapter"
+            :placeholder="$t('datapoints.allAdapters')"
             @update:modelValue="setAdapterFilter"
           />
         </div>

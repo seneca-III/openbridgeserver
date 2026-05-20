@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useVisuStore } from '@/stores/visu'
 import { useWebSocket } from '@/composables/useWebSocket'
 
-const { t } = useI18n()
 const router  = useRouter()
 const store   = useVisuStore()
 const ws      = useWebSocket()

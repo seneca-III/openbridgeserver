@@ -10,7 +10,6 @@
  * @prop dark  Force dark-mode styling (for widget config panels that are always dark)
  */
 import { ref, computed, watch, onMounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useIcons } from '@/composables/useIcons'
 import VisuIcon from '@/components/VisuIcon.vue'
 
@@ -27,7 +26,6 @@ const QUICK_ICONS = [
   '🔗','🏊','🌳','🚗','🔑','📊','🔋','🏭','☀️','🌬️',
 ]
 
-const { t } = useI18n()
 const { iconNames, loadList, isSvgIcon } = useIcons()
 const tab = ref<'emoji' | 'svg'>('emoji')
 const search = ref('')

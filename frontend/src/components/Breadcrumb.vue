@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useVisuStore } from '@/stores/visu'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import type { VisuNode } from '@/types'
 import VisuIcon from '@/components/VisuIcon.vue'
 
-const { t } = useI18n()
 const store = useVisuStore()
 const { breadcrumb, isLoggedIn } = storeToRefs(store)
 const router = useRouter()

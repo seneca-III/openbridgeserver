@@ -19,7 +19,7 @@
           class="btn-secondary btn-sm"
           data-testid="btn-live-pause"
         >
-          ⏸ Pause
+          {{ $t('ringbuffer.pause') }}
         </button>
         <button
           v-else
@@ -27,7 +27,7 @@
           class="btn-secondary btn-sm"
           data-testid="btn-live-resume"
         >
-          ▶ Resume
+          {{ $t('ringbuffer.resume') }}
         </button>
         <!-- Single, consolidated status indicator: WS-connection + pause-state.
              Same padding/height as btn-sm so the chip sits on the button

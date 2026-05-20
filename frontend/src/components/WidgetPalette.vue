@@ -1,10 +1,7 @@
 <!-- Widget-Palette für den Editor: zeigt alle registrierten Widgets, gruppiert nach Kategorie -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { WidgetRegistry } from '@/widgets/registry'
-
-const { t } = useI18n()
 
 const emit = defineEmits<{
   (e: 'insert', type: string): void

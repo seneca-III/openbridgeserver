@@ -357,7 +357,28 @@
       "axisRight": "Rechts ►",
       "seriesLabel": "Bezeichnung (optional)",
       "removeSeriesTitle": "Reihe entfernen",
-      "addSeries": "+ Weitere Reihe hinzufügen"
+      "addSeries": "+ Weitere Reihe hinzufügen",
+      "timeRange": {
+        "last_5m": "Letzte 5 Minuten",
+        "last_15m": "Letzte 15 Minuten",
+        "last_30m": "Letzte 30 Minuten",
+        "last_1h": "Letzte 1 Stunde",
+        "last_3h": "Letzte 3 Stunden",
+        "last_6h": "Letzte 6 Stunden",
+        "last_12h": "Letzte 12 Stunden",
+        "last_24h": "Letzte 24 Stunden",
+        "last_2d": "Letzte 2 Tage",
+        "last_7d": "Letzte 7 Tage",
+        "last_30d": "Letzte 30 Tage",
+        "last_90d": "Letzte 90 Tage",
+        "today": "Heute bis jetzt",
+        "this_week": "Diese Woche bis jetzt",
+        "this_month": "Diesen Monat bis jetzt",
+        "yesterday": "Gestern",
+        "last_week": "Letzte Woche",
+        "last_month": "Letzter Monat"
+      },
+      "defaultTimeRange": "Standard-Zeitbereich"
     },
     "energiefluss": {
       "titleLabel": "Titel (optional)",
@@ -645,7 +666,8 @@
       "decimalsShort": "Dezimalst.",
       "period": "Zeitraum (Stunden)",
       "duplicateTitle": "Duplizieren",
-      "deleteTitle": "Löschen"
+      "deleteTitle": "Löschen",
+      "defaultHistoryRange": "Standard-Verlaufszeitraum"
     },
     "wetter": {
       "labelCity": "Bezeichnung (Ortname)",
