@@ -19,14 +19,6 @@ from obs.logic.models import FlowData, LogicNode
 
 logger = logging.getLogger(__name__)
 
-# Sandboxed rounding helper used by formula/script environments.
-# It is compiled with an empty builtins dict so `round.__globals__`
-# cannot be abused to recover real builtins.
-_SANDBOX_ROUND_HALF_UP = eval(  # noqa: S307
-    "lambda x, ndigits=0: (int(float(Decimal(str(x)).quantize(Decimal(10) ** -ndigits, rounding=ROUND_HALF_UP))) if ndigits <= 0 else float(Decimal(str(x)).quantize(Decimal(10) ** -ndigits, rounding=ROUND_HALF_UP)))",
-    {"Decimal": Decimal, "ROUND_HALF_UP": ROUND_HALF_UP, "int": int, "float": float, "str": str, "__builtins__": {}},
-)
-
 _COMPARE_OPS = {
     ">": operator.gt,
     "<": operator.lt,
@@ -426,6 +418,7 @@ class GraphExecutor:
 
                 raw = inputs.get("data")
                 json_path = (d.get("json_path") or "").strip()
+                json_paths_raw = (d.get("json_paths") or "").strip()
 
                 # Parse raw input to Python object
                 if isinstance(raw, str):
@@ -438,17 +431,6 @@ class GraphExecutor:
                 else:
                     data_obj = None
 
-                # Extract value at dotted path
-                value: Any = None
-                if data_obj is not None:
-                    if json_path:
-                        try:
-                            value = self._json_extract(data_obj, json_path)
-                        except (KeyError, IndexError, TypeError, ValueError):
-                            value = None
-                    else:
-                        value = None  # No path configured — user must select one
-
                 # _preview: compact JSON snapshot for config-panel path picker (max 20 KB)
                 try:
                     preview = _json_mod.dumps(data_obj, default=str, ensure_ascii=False)
@@ -456,6 +438,34 @@ class GraphExecutor:
                         preview = preview[:20_000] + "…"
                 except Exception:
                     preview = str(data_obj) if data_obj is not None else None
+
+                # Multi-path mode: json_paths is a JSON array of {label, path} entries
+                if json_paths_raw:
+                    try:
+                        path_list = _json_mod.loads(json_paths_raw)
+                    except Exception:
+                        path_list = []
+
+                    if isinstance(path_list, list) and path_list:
+                        result: dict[str, Any] = {"_preview": preview}
+                        for i, entry in enumerate(path_list):
+                            p = (entry.get("path") or "").strip() if isinstance(entry, dict) else ""
+                            val: Any = None
+                            if data_obj is not None and p:
+                                try:
+                                    val = self._json_extract(data_obj, p)
+                                except (KeyError, IndexError, TypeError, ValueError):
+                                    val = None
+                            result[f"out_{i + 1}"] = val
+                        return result
+
+                # Legacy single-path mode
+                value: Any = None
+                if data_obj is not None and json_path:
+                    try:
+                        value = self._json_extract(data_obj, json_path)
+                    except (KeyError, IndexError, TypeError, ValueError):
+                        value = None
 
                 return {"value": value, "_preview": preview}
 
@@ -1107,7 +1117,9 @@ class GraphExecutor:
         """
         allowed = {k: v for k, v in math.__dict__.items() if not k.startswith("_")}
         # Add Python builtins that are safe and useful in formulas.
-        allowed.update({"abs": abs, "round": _SANDBOX_ROUND_HALF_UP, "min": min, "max": max})
+        # Use _round_half_up instead of built-in round to get mathematical
+        # rounding (0.5 always rounds up) rather than banker's rounding.
+        allowed.update({"abs": abs, "round": GraphExecutor._round_half_up, "min": min, "max": max})
         allowed.update(ctx)
         try:
             tree = ast.parse(expr, mode="eval")
@@ -1133,7 +1145,7 @@ class GraphExecutor:
                         "abs": abs,
                         "min": min,
                         "max": max,
-                        "round": _SANDBOX_ROUND_HALF_UP,
+                        "round": GraphExecutor._round_half_up,
                         "math": math,
                     },
                 },

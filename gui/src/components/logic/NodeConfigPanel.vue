@@ -429,26 +429,78 @@
           />
         </div>
 
-        <!-- ── JSON Extractor: single-path UI ──────────────────────────── -->
+        <!-- ── JSON Extractor: multi-output UI ──────────────────────────── -->
         <template v-if="node.type === 'json_extractor'">
+
+          <!-- Legacy single-path: show upgrade banner -->
+          <template v-if="localData.json_path && !jsonPaths.length">
+            <div class="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-300">
+              <p class="font-semibold mb-1">Legacy-Konfiguration</p>
+              <p class="text-amber-400/80 mb-2">Pfad: <code class="font-mono">{{ localData.json_path }}</code></p>
+              <button @click="migrateJsonToMultiPath" class="btn btn-sm bg-amber-600 hover:bg-amber-500 text-white text-xs px-2 py-1 rounded">
+                Zu mehreren Ausgängen upgraden
+              </button>
+            </div>
+          </template>
+
+          <!-- Multi-path path picker dropdown (one shared, fills active row) -->
           <div v-if="extractorPaths.length" class="form-group">
-            <label class="label">{{ $t('logic.nodeConfig.extractor.selectPath') }}</label>
+            <label class="label">
+              {{ $t('logic.nodeConfig.extractor.selectPath') }}<span v-if="activeExtractorRow !== null" class="text-teal-400"> → Ausgang {{ activeExtractorRow + 1 }}</span>
+            </label>
             <select @change="onExtractorPathSelect" class="input text-sm" data-testid="extractor-path-select">
               <option value="">{{ $t('logic.nodeConfig.extractor.pathPlaceholder') }}</option>
               <option v-for="p in extractorPaths" :key="p" :value="p">{{ p }}</option>
             </select>
           </div>
+
+          <!-- Output rows -->
           <div class="form-group">
-            <label class="label">{{ $t('logic.nodeConfig.extractor.jsonPath') }}</label>
-            <input
-              v-model="localData.json_path"
-              @change="emitUpdate"
-              class="input text-sm font-mono"
-              :placeholder="$t('logic.nodeConfig.extractor.jsonPathPlaceholder')"
-              data-testid="extractor-path-input"
-            />
-            <p v-if="extractorPreviewValue !== null" class="text-xs text-teal-400 mt-1">
-              ↳ {{ String(extractorPreviewValue) }}
+            <div class="flex items-center justify-between mb-1">
+              <span class="section-label">Ausgänge ({{ jsonPaths.length }})</span>
+              <button
+                @click="addJsonPath"
+                class="w-6 h-6 flex items-center justify-center rounded text-teal-400 hover:bg-teal-400/10 font-bold text-lg leading-none"
+                title="Ausgang hinzufügen"
+              >+</button>
+            </div>
+
+            <div
+              v-for="(entry, i) in jsonPaths" :key="i"
+              class="extractor-output-row mt-2 p-2 rounded-lg border border-slate-700/50 flex flex-col gap-1"
+              :style="extractorOutputRowStyle"
+            >
+              <div class="flex items-center gap-1">
+                <span class="extractor-output-index text-xs font-mono w-5 shrink-0 text-center">{{ i + 1 }}</span>
+                <input
+                  :value="entry.label"
+                  @input="updateJsonPath(i, 'label', $event.target.value)"
+                  class="input text-xs flex-1"
+                  placeholder="Bezeichnung"
+                />
+                <button
+                  @click="removeJsonPath(i)"
+                  class="extractor-output-remove w-5 h-5 flex items-center justify-center rounded hover:bg-red-400/10 text-base leading-none shrink-0"
+                  title="Ausgang entfernen"
+                >−</button>
+              </div>
+              <input
+                :value="entry.path"
+                @input="updateJsonPath(i, 'path', $event.target.value)"
+                @focus="activeExtractorRow = i"
+                @blur="activeExtractorRow = null"
+                class="input text-xs font-mono w-full"
+                :class="activeExtractorRow === i ? 'ring-1 ring-teal-500/60' : ''"
+                placeholder="z.B. data.temperature"
+                data-testid="extractor-path-input"
+              />
+              <p v-if="jsonPathPreview(i) !== null" class="text-xs text-teal-400">
+                ↳ {{ String(jsonPathPreview(i)) }}
+              </p>
+            </div>
+
+            <p v-if="!jsonPaths.length && !localData.json_path" class="text-xs text-slate-500 mt-2 text-center py-2">
+              Klicke <strong>+</strong> um Ausgänge hinzuzufügen.
             </p>
           </div>
         </template>
@@ -491,10 +543,11 @@
 
             <div
               v-for="(entry, i) in xmlPaths" :key="i"
-              class="mt-2 p-2 rounded-lg border border-slate-700/50 bg-slate-800/60 flex flex-col gap-1"
+              class="extractor-output-row mt-2 p-2 rounded-lg border border-slate-700/50 flex flex-col gap-1"
+              :style="extractorOutputRowStyle"
             >
               <div class="flex items-center gap-1">
-                <span class="text-xs font-semibold text-teal-600 dark:text-teal-400 w-5 shrink-0 text-center">{{ i + 1 }}</span>
+                <span class="extractor-output-index text-xs font-mono w-5 shrink-0 text-center">{{ i + 1 }}</span>
                 <input
                   :value="entry.label"
                   @input="updateXmlPath(i, 'label', $event.target.value)"
@@ -503,7 +556,7 @@
                 />
                 <button
                   @click="removeXmlPath(i)"
-                  class="w-5 h-5 flex items-center justify-center rounded text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-400/10 text-base leading-none shrink-0"
+                  class="extractor-output-remove w-5 h-5 flex items-center justify-center rounded hover:bg-red-400/10 text-base leading-none shrink-0"
                   title="Ausgang entfernen"
                 >−</button>
               </div>
@@ -779,6 +832,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { dpApi, searchApi } from '@/api/client'
+import { getAutoContrastText } from '@/utils/colorContrast'
 
 const { t, te } = useI18n()
 
@@ -788,6 +842,13 @@ const props = defineProps({
   nodeOutputs: { type: Object, default: () => ({}) },
 })
 const emit = defineEmits(['update', 'close'])
+
+const EXTRACTOR_OUTPUT_BG = 'rgba(30, 41, 59, 0.6)'
+const EXTRACTOR_OUTPUT_FG = getAutoContrastText(EXTRACTOR_OUTPUT_BG)
+const extractorOutputRowStyle = {
+  '--extractor-output-bg': EXTRACTOR_OUTPUT_BG,
+  '--extractor-output-fg': EXTRACTOR_OUTPUT_FG,
+}
 
 // ── State ──────────────────────────────────────────────────────────────────
 const localData          = ref({})
@@ -1138,6 +1199,66 @@ const extractorPreviewValue = computed(() => {
   }
 })
 
+// ── JSON Extractor: multi-path management ─────────────────────────────────
+const jsonPaths = computed(() => {
+  if (props.node?.type !== 'json_extractor') return []
+  try {
+    const parsed = JSON.parse(localData.value.json_paths || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+})
+
+function _saveJsonPaths(paths) {
+  localData.value.json_paths = JSON.stringify(paths)
+  emitUpdate()
+}
+
+function addJsonPath() {
+  const paths = jsonPaths.value.slice()
+  paths.push({ label: `Wert ${paths.length + 1}`, path: '' })
+  _saveJsonPaths(paths)
+  activeExtractorRow.value = paths.length - 1
+}
+
+function removeJsonPath(i) {
+  const paths = jsonPaths.value.slice()
+  paths.splice(i, 1)
+  _saveJsonPaths(paths)
+  activeExtractorRow.value = paths.length > 0 ? Math.min(i, paths.length - 1) : null
+}
+
+function updateJsonPath(i, key, value) {
+  const paths = jsonPaths.value.map(p => ({ ...p }))
+  paths[i][key] = value
+  _saveJsonPaths(paths)
+}
+
+function jsonPathPreview(i) {
+  const preview = extractorPreview.value
+  if (!preview) return null
+  const entry = jsonPaths.value[i]
+  if (!entry?.path) return null
+  try {
+    const obj = JSON.parse(preview)
+    const normPath = entry.path.replace(/\[(\d+)\]/g, '.$1')
+    const parts = normPath.split('.').filter(Boolean)
+    let cur = obj
+    for (const p of parts) {
+      if (cur === null || typeof cur !== 'object') return null
+      cur = Array.isArray(cur) ? cur[Number(p)] : cur[p]
+    }
+    return cur !== undefined ? cur : null
+  } catch { return null }
+}
+
+function migrateJsonToMultiPath() {
+  const legacyPath = (localData.value.json_path || '').trim()
+  if (!legacyPath) return
+  localData.value.json_paths = JSON.stringify([{ label: 'Wert 1', path: legacyPath }])
+  localData.value.json_path = ''
+  emitUpdate()
+}
+
 // ── XML Extractor: multi-path management ──────────────────────────────────
 const xmlPaths = computed(() => {
   if (props.node?.type !== 'xml_extractor') return []
@@ -1361,24 +1482,26 @@ function onValueMapPresetChange() {
 function onExtractorPathSelect(e) {
   const path = e.target.value
   if (!path || !props.node) return
-  if (props.node.type === 'json_extractor') {
-    localData.value.json_path = path
-    emitUpdate()
-  } else {
-    // XML Extractor: fill the active row, or last row, or add a new row
-    let target = activeExtractorRow.value
-    if (target === null || target >= xmlPaths.value.length) {
-      target = xmlPaths.value.length - 1
-    }
-    if (target >= 0) {
-      updateXmlPath(target, 'path', path)
-      activeExtractorRow.value = target
-    } else {
-      _saveXmlPaths([{ label: 'Wert 1', path }])
-      activeExtractorRow.value = 0
-    }
-    e.target.value = ''
+  const isJson = props.node.type === 'json_extractor'
+  const pathList = isJson ? jsonPaths.value : xmlPaths.value
+  const updateFn = isJson ? updateJsonPath : updateXmlPath
+  const saveFn   = isJson ? _saveJsonPaths : _saveXmlPaths
+  const labelKey = isJson ? 'json_path' : 'xml_path'
+
+  // Fill the active row, or last row, or add a new row
+  let target = activeExtractorRow.value
+  if (target === null || target >= pathList.length) {
+    target = pathList.length - 1
   }
+  if (target >= 0) {
+    updateFn(target, 'path', path)
+    activeExtractorRow.value = target
+  } else {
+    // No rows yet — add one
+    saveFn([{ label: 'Wert 1', path }])
+    activeExtractorRow.value = 0
+  }
+  e.target.value = ''
 }
 
 function onValueMapCustomInput(e) {
@@ -1519,4 +1642,24 @@ function emitUpdate() {
   font-size: 9px;
 }
 :global(.dark) .cron-legend code { color: #94a3b8; }
+
+.extractor-output-row {
+  background: var(--extractor-output-bg);
+}
+
+.extractor-output-index {
+  color: var(--extractor-output-fg);
+  opacity: .95;
+}
+
+.extractor-output-remove {
+  color: var(--extractor-output-fg);
+  opacity: .85;
+  transition: color .15s, opacity .15s;
+}
+
+.extractor-output-remove:hover {
+  color: #f87171;
+  opacity: 1;
+}
 </style>
