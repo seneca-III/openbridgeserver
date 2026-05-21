@@ -263,6 +263,16 @@ When adding a new view, widget config, or significant UI component:
 5. Pure utility functions must return keys, not translated strings.
 6. Run `npm run build` in `gui/` (and `frontend/` if Visu was touched) — a missing key does not throw at dev time but will surface as `[namespace.key]` in production.
 
+#### Known exception — `gui/src/utils/hierarchyDepthOptions.js`
+
+This utility builds option labels that mix tree node names (runtime data) with structural level names. It cannot cleanly return plain i18n keys because the labels are composite strings (e.g. `"1 — EG Test (nur \"Wohnzimmer\")"`). It currently uses hardcoded German strings. This is a known gap; do not copy this pattern for new utilities.
+
+#### E2E tests (Playwright) and locale
+
+The Playwright suite lives in `tests/gui/` and requires a running full stack (backend + both frontends, typically via `docker compose up`). Run with `npx playwright test` from `tests/gui/`.
+
+**Locale requirement:** `tests/gui/playwright.config.ts` sets `locale: 'de'` in the global `use` config. This tells Playwright's Chromium to simulate a German browser (`navigator.language = 'de'`), so `detectLocale()` always picks German and all test assertions against German strings work. Do not remove this setting — without it every test that checks a translated string will fail when run on a machine with an English OS/browser.
+
 #### Adding a new locale
 
 1. Add `src/locales/<lang>.json` (copy `de.json` as a starting point)
