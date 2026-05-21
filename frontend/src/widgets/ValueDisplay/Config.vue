@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { reactive, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import IconPicker from '@/components/IconPicker.vue'
 import DataPointPicker from '@/components/DataPointPicker.vue'
 import { TIME_RANGE_PRESETS, DEFAULT_TIME_RANGE } from '@/widgets/Chart/timeRangePresets'
@@ -38,42 +39,51 @@ const emit  = defineEmits<{ (e: 'update:modelValue', val: Record<string, unknown
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MODES: { value: DisplayMode; label: string }[] = [
-  { value: 'value',        label: 'Wert + Icon' },
-  { value: 'history',      label: 'Wert + Verlauf' },
-  { value: 'icon_only',    label: 'Nur Icon' },
-  { value: 'gauge_arc',    label: 'Gauge Bogen' },
-  { value: 'gauge_circle', label: 'Gauge Kreis' },
-]
+
+
+
+
+
+
+
+const { t } = useI18n()
+
+const MODES = computed(() => [
+  { value: 'value'        as DisplayMode, label: t('widgets.valuedisplay.modeValueIcon') },
+  { value: 'history'      as DisplayMode, label: t('widgets.valuedisplay.modeValueHistory') },
+  { value: 'icon_only'    as DisplayMode, label: t('widgets.valuedisplay.modeIconOnly') },
+  { value: 'gauge_arc'    as DisplayMode, label: t('widgets.valuedisplay.modeGaugeArc') },
+  { value: 'gauge_circle' as DisplayMode, label: t('widgets.valuedisplay.modeGaugeCircle') },
+])
 
 function isGaugeMode(m: DisplayMode): boolean {
   return m === 'gauge_arc' || m === 'gauge_circle'
 }
 
-const FN_OPTIONS: { value: CondFn; label: string }[] = [
-  { value: 'eq',  label: 'Gleich' },
-  { value: 'lt',  label: 'Weniger als' },
-  { value: 'lte', label: 'Weniger als oder gleich' },
-  { value: 'gt',  label: 'Größer als' },
-  { value: 'gte', label: 'Größer als oder gleich' },
-]
+const FN_OPTIONS = computed(() => [
+  { value: 'eq'  as CondFn, label: t('widgets.valuedisplay.fnEq') },
+  { value: 'lt'  as CondFn, label: t('widgets.valuedisplay.fnLt') },
+  { value: 'lte' as CondFn, label: t('widgets.valuedisplay.fnLte') },
+  { value: 'gt'  as CondFn, label: t('widgets.valuedisplay.fnGt') },
+  { value: 'gte' as CondFn, label: t('widgets.valuedisplay.fnGte') },
+])
 
-const CALC_OPTIONS = [
-  { value: '',       label: 'Keine' },
-  { value: '* 1000', label: '× 1.000' },
-  { value: '/ 1000', label: '÷ 1.000' },
-  { value: '* 100',  label: '× 100' },
-  { value: '/ 100',  label: '÷ 100' },
-  { value: '* 10',   label: '× 10' },
-  { value: '/ 10',   label: '÷ 10' },
-]
+const CALC_OPTIONS = computed(() => [
+  { value: '',       label: t('widgets.valuedisplay.calcNone') },
+  { value: '* 1000', label: t('widgets.valuedisplay.calcMul1000') },
+  { value: '/ 1000', label: t('widgets.valuedisplay.calcDiv1000') },
+  { value: '* 100',  label: t('widgets.valuedisplay.calcMul100') },
+  { value: '/ 100',  label: t('widgets.valuedisplay.calcDiv100') },
+  { value: '* 10',   label: t('widgets.valuedisplay.calcMul10') },
+  { value: '/ 10',   label: t('widgets.valuedisplay.calcDiv10') },
+])
 
-const DECIMAL_OPTIONS = [
-  { value: 0, label: '0 Stellen' },
-  { value: 1, label: '1 Stelle' },
-  { value: 2, label: '2 Stellen' },
-  { value: 3, label: '3 Stellen' },
-]
+const DECIMAL_OPTIONS = computed(() => [
+  { value: 0, label: t('widgets.valuedisplay.dec0') },
+  { value: 1, label: t('widgets.valuedisplay.dec1') },
+  { value: 2, label: t('widgets.valuedisplay.dec2') },
+  { value: 3, label: t('widgets.valuedisplay.dec3') },
+])
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -160,7 +170,7 @@ function dupRule(i: number) {
 
     <!-- Label -->
     <div>
-      <label class="block text-xs text-gray-400 mb-1">Beschriftung</label>
+      <label class="block text-xs text-gray-400 mb-1">{{ $t('widgets.common.label') }}</label>
       <input
         v-model="cfg.label"
         type="text"
@@ -171,7 +181,7 @@ function dupRule(i: number) {
 
     <!-- Mode -->
     <div>
-      <label class="block text-xs text-gray-400 mb-1">Modus</label>
+      <label class="block text-xs text-gray-400 mb-1">{{ $t('common.mode') }}</label>
       <div class="flex flex-wrap gap-1">
         <button
           v-for="m in MODES"
@@ -191,7 +201,7 @@ function dupRule(i: number) {
     <!-- ── Rules table ─────────────────────────────────────────────────────── -->
     <div>
       <div class="flex items-center justify-between mb-1">
-        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Regeln</p>
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ $t('widgets.valuedisplay.rules') }}</p>
       </div>
 
       <div class="space-y-1">
@@ -204,8 +214,8 @@ function dupRule(i: number) {
           <!-- ── Default rule ─────────────────────────────────────────────── -->
           <template v-if="rule.fn === 'default'">
             <div class="px-2 pt-2 pb-1">
-              <p class="text-xs font-semibold text-gray-400">Standard</p>
-              <p class="text-xs text-gray-600 mb-2">Wenn keine andere Regel zutrifft</p>
+              <p class="text-xs font-semibold text-gray-400">{{ $t('widgets.valuedisplay.defaultRule') }}</p>
+              <p class="text-xs text-gray-600 mb-2">{{ $t('widgets.valuedisplay.defaultRuleHint') }}</p>
 
               <!-- Icon + color row -->
               <div class="flex gap-2 items-center mb-2">
@@ -226,8 +236,8 @@ function dupRule(i: number) {
                     v-model="rule.output_type"
                     class="bg-gray-800 border border-gray-700 rounded px-1 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
                   >
-                    <option value="value">Wert</option>
-                    <option value="text">Text</option>
+                    <option value="value">{{ $t('widgets.valuedisplay.outputValue') }}</option>
+                    <option value="text">{{ $t('widgets.valuedisplay.outputText') }}</option>
                   </select>
 
                   <template v-if="rule.output_type === 'value'">
@@ -309,13 +319,13 @@ function dupRule(i: number) {
               <button
                 type="button"
                 class="text-gray-500 hover:text-blue-400 px-0.5 shrink-0"
-                title="Duplizieren"
+                :title="$t('widgets.valuedisplay.duplicateTitle')"
                 @click="dupRule(i)"
               >⧉</button>
               <button
                 type="button"
                 class="text-gray-500 hover:text-red-400 px-0.5 shrink-0"
-                title="Löschen"
+                :title="$t('widgets.valuedisplay.deleteTitle')"
                 @click="removeRule(i)"
               >🗑</button>
             </div>
@@ -388,12 +398,12 @@ function dupRule(i: number) {
         type="button"
         class="mt-2 text-xs text-blue-400 hover:text-blue-300"
         @click="addRule"
-      >+ Regel hinzufügen</button>
+      >{{ $t('widgets.valuedisplay.addRule') }}</button>
     </div>
 
     <!-- ── Secondary value (value mode only) ─────────────────────────────── -->
     <div v-if="cfg.mode === 'value'" class="border-t border-gray-700 pt-3 space-y-2">
-      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">2. Wert (optional)</p>
+      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">{{ $t('widgets.valuedisplay.secondValue') }}</p>
       <DataPointPicker
         :model-value="cfg.secondary_dp_id || null"
         :compatible-types="['FLOAT', 'INTEGER', 'BOOLEAN', 'STRING']"
@@ -402,7 +412,7 @@ function dupRule(i: number) {
       <template v-if="cfg.secondary_dp_id">
         <div class="flex gap-2">
           <div class="flex-1">
-            <label class="block text-xs text-gray-400 mb-1">Bezeichnung</label>
+            <label class="block text-xs text-gray-400 mb-1">{{ $t('widgets.valuedisplay.secondaryLabel') }}</label>
             <input
               v-model="cfg.secondary_label"
               type="text"
@@ -426,12 +436,12 @@ function dupRule(i: number) {
 
     <!-- ── History time range (history mode only) ───────────────────────── -->
     <div v-if="cfg.mode === 'history'" class="border-t border-gray-700 pt-3">
-      <label class="block text-xs text-gray-400 mb-1">Standard-Zeitbereich</label>
+      <label class="block text-xs text-gray-400 mb-1">{{ $t('widgets.valuedisplay.defaultHistoryRange') }}</label>
       <select
         v-model="cfg.history_time_range"
         class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
       >
-        <option v-for="p in TIME_RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+        <option v-for="p in TIME_RANGE_PRESETS" :key="p.value" :value="p.value">{{ $t(p.label) }}</option>
       </select>
     </div>
 
