@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useDatapointsStore } from '@/stores/datapoints'
 import { datapoints } from '@/api/client'
 import type { DataPointValue } from '@/types'
@@ -14,6 +15,7 @@ const props = defineProps<{
 }>()
 
 const dpStore = useDatapointsStore()
+const { t }   = useI18n()
 
 // ── Konfiguration ─────────────────────────────────────────────────────────────
 
@@ -105,25 +107,28 @@ async function setMode(mode: number) {
 }
 
 const HEATING_MODES = [
-  { value: 0, label: 'Auto'        },
-  { value: 1, label: 'Komfort'     },
-  { value: 2, label: 'Standby'     },
-  { value: 3, label: 'Economy'     },
-  { value: 4, label: 'Frostschutz' },
+  { value: 0, label: 'widgets.rtr.modeAuto'        },
+  { value: 1, label: 'widgets.rtr.modeKomfort'     },
+  { value: 2, label: 'widgets.rtr.modeStandby'     },
+  { value: 3, label: 'widgets.rtr.modeEconomy'     },
+  { value: 4, label: 'widgets.rtr.modeFrostschutz' },
 ]
 
 const AC_MODES = [
-  { value:  0, label: 'Automatik'   },
-  { value:  1, label: 'Heizen'      },
-  { value:  3, label: 'Kühlen'      },
-  { value:  6, label: 'Aus'         },
-  { value:  9, label: 'Nur Lüfter'  },
-  { value: 14, label: 'Entfeuchten' },
+  { value:  0, label: 'widgets.rtr.modeAutomatik'   },
+  { value:  1, label: 'widgets.rtr.modeHeizen'      },
+  { value:  3, label: 'widgets.rtr.modeKuehlen'     },
+  { value:  6, label: 'widgets.rtr.modeAus'         },
+  { value:  9, label: 'widgets.rtr.modeNurLuefter'  },
+  { value: 14, label: 'widgets.rtr.modeEntfeuchten' },
 ]
 
 const allModes         = computed(() => variant.value === 'ac' ? AC_MODES : HEATING_MODES)
 const visibleModes     = computed(() => allModes.value.filter(m => supportedModes.value.includes(m.value)))
-const currentModeLabel = computed(() => allModes.value.find(m => m.value === currentMode.value)?.label ?? null)
+const currentModeLabel = computed(() => {
+  const key = allModes.value.find(m => m.value === currentMode.value)?.label ?? null
+  return key ? t(key) : null
+})
 
 // ── Farbverlauf ───────────────────────────────────────────────────────────────
 
@@ -408,7 +413,7 @@ const actualMarker = computed(() => {
         :style="currentMode === m.value ? { backgroundColor: activeColor } : {}"
         :disabled="editorMode || readonly"
         @click="setMode(m.value)"
-      >{{ m.label }}</button>
+      >{{ $t(m.label) }}</button>
     </div>
 
   </div>

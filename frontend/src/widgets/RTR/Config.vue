@@ -19,20 +19,20 @@ interface RTRConfig {
 }
 
 const HEATING_MODES = [
-  { value: 0, label: 'Auto'        },
-  { value: 1, label: 'Komfort'     },
-  { value: 2, label: 'Standby'     },
-  { value: 3, label: 'Economy'     },
-  { value: 4, label: 'Frostschutz' },
+  { value: 0, label: 'widgets.rtr.modeAuto'        },
+  { value: 1, label: 'widgets.rtr.modeKomfort'     },
+  { value: 2, label: 'widgets.rtr.modeStandby'     },
+  { value: 3, label: 'widgets.rtr.modeEconomy'     },
+  { value: 4, label: 'widgets.rtr.modeFrostschutz' },
 ]
 
 const AC_MODES = [
-  { value:  0, label: 'Automatik'   },
-  { value:  1, label: 'Heizen'      },
-  { value:  3, label: 'Kühlen'      },
-  { value:  6, label: 'Aus'         },
-  { value:  9, label: 'Nur Lüfter'  },
-  { value: 14, label: 'Entfeuchten' },
+  { value:  0, label: 'widgets.rtr.modeAutomatik'   },
+  { value:  1, label: 'widgets.rtr.modeHeizen'      },
+  { value:  3, label: 'widgets.rtr.modeKuehlen'     },
+  { value:  6, label: 'widgets.rtr.modeAus'         },
+  { value:  9, label: 'widgets.rtr.modeNurLuefter'  },
+  { value: 14, label: 'widgets.rtr.modeEntfeuchten' },
 ]
 
 const VARIANT_DEFAULT_MODES: Record<'heating' | 'ac', number[]> = {
@@ -92,12 +92,12 @@ function toggleMode(value: number) {
     <!-- Beschriftung -->
     <div>
       <label class="block text-xs text-gray-400 mb-1">
-        {{ $t('widgets.common.label') }} <span class="text-gray-600 font-normal ml-1">(optional)</span>
+        {{ $t('widgets.common.label') }} <span class="text-gray-600 font-normal ml-1">{{ $t('widgets.rtr.optional') }}</span>
       </label>
       <input
         v-model="cfg.label"
         type="text"
-        placeholder="z.B. Wohnzimmer"
+        :placeholder="$t('widgets.rtr.labelPlaceholder')"
         class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
@@ -272,7 +272,7 @@ function toggleMode(value: number) {
                 : 'border-gray-700 text-gray-400 hover:border-gray-500',
             ]"
             @click="toggleMode(m.value)"
-          >{{ m.label }}</button>
+          >{{ $t(m.label) }}</button>
         </div>
         <p class="text-xs text-gray-600 mt-1">{{ dptNote }}</p>
       </div>

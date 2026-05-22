@@ -638,7 +638,20 @@
       "showModes": "Show mode buttons",
       "supportedModes": "Supported modes",
       "dpActualTemp": "Actual temperature object (optional)",
-      "dpMode": "Operating mode object (optional)"
+      "dpMode": "Operating mode object (optional)",
+      "modeAuto": "Auto",
+      "modeKomfort": "Comfort",
+      "modeStandby": "Standby",
+      "modeEconomy": "Economy",
+      "modeFrostschutz": "Frost protection",
+      "modeAutomatik": "Automatic",
+      "modeHeizen": "Heating",
+      "modeKuehlen": "Cooling",
+      "modeAus": "Off",
+      "modeNurLuefter": "Fan only",
+      "modeEntfeuchten": "Dehumidify",
+      "optional": "(optional)",
+      "labelPlaceholder": "e.g. living room"
     },
     "slider": {
       "unit": "Unit",

@@ -638,7 +638,20 @@
       "showModes": "Betriebsart-Buttons anzeigen",
       "supportedModes": "Unterstützte Modi",
       "dpActualTemp": "Isttemperatur-Objekt (optional)",
-      "dpMode": "Betriebsart-Objekt (optional)"
+      "dpMode": "Betriebsart-Objekt (optional)",
+      "modeAuto": "Auto",
+      "modeKomfort": "Komfort",
+      "modeStandby": "Standby",
+      "modeEconomy": "Economy",
+      "modeFrostschutz": "Frostschutz",
+      "modeAutomatik": "Automatik",
+      "modeHeizen": "Heizen",
+      "modeKuehlen": "Kühlen",
+      "modeAus": "Aus",
+      "modeNurLuefter": "Nur Lüfter",
+      "modeEntfeuchten": "Entfeuchten",
+      "optional": "(optional)",
+      "labelPlaceholder": "z.B. Wohnzimmer"
     },
     "slider": {
       "unit": "Einheit",
