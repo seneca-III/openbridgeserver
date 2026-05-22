@@ -19,7 +19,7 @@ export function useVisuBackgrounds() {
       })
       .catch((err: unknown) => {
         items.value = []
-        error.value = err instanceof Error ? err.message : 'Load error'
+        error.value = err instanceof Error ? err.message : ''
       })
       .finally(() => {
         loading.value = false
