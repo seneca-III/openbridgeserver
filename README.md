@@ -53,6 +53,7 @@ open bridge connects different building technology protocols into a unified syst
    - [Floor plan and system diagram widget](#floor-plan-and-system-diagram-widget)
 20. [Development](#development)
    - [Local development with PyCharm](#local-development-with-pycharm)
+   - [Local Git Hooks (Pre-Push Gate)](#local-git-hooks-pre-push-gate)
 
 ---
 
@@ -1533,6 +1534,31 @@ pytest tests/
 # With auto-fix
 ./tools/lint.sh --fix
 ```
+
+#### Translations (Weblate / wlc)
+
+### Local Git Hooks (Pre-Push Gate)
+
+Versioned hooks live in `.githooks/`. To activate them in a clone, set `core.hooksPath` once:
+
+```bash
+./tools/setup-git-hooks.sh
+```
+
+On each `git push`, the hook runs:
+
+- `./scripts/check-i18n-hardcoded-strings.sh`
+- `python3 -m ruff check .`
+- `python3 -m ruff format . --check`
+- `pytest tests/ -v --cov=obs --cov-report=xml --cov-report=term --junitxml="${TMPDIR:-/tmp}/openbridge-pre-push-junit.xml"`
+
+To bypass once:
+
+```bash
+git push --no-verify
+```
+
+---
 
 #### Translations (Weblate / wlc)
 
