@@ -20,4 +20,4 @@ echo "[gate] ruff format --check"
 python3 -m ruff format . --check
 
 echo "[gate] pytest (CI parity)"
-pytest tests/ -v --cov=obs --cov-report=xml --cov-report=term --junitxml=junit.xml
+pytest tests/ -v --cov=obs --cov-report=xml --cov-report=term --junitxml="${TMPDIR:-/tmp}/openbridge-pre-push-junit.xml"

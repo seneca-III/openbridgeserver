@@ -1552,7 +1552,7 @@ Danach läuft bei jedem `git push` automatisch:
 
 - `python3 -m ruff check .`
 - `python3 -m ruff format . --check`
-- `pytest tests/ -v --cov=obs --cov-report=xml --cov-report=term --junitxml=junit.xml`
+- `pytest tests/ -v --cov=obs --cov-report=xml --cov-report=term --junitxml="${TMPDIR:-/tmp}/openbridge-pre-push-junit.xml"`
 
 Bei Bedarf kann der Hook einmalig umgangen werden mit:
 
