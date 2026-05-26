@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
-from obs.api.v1.websocket import WebSocketManager
+from obs.api.v1.websocket import WebSocketManager, _page_allowed_datapoints
 from obs.core.event_bus import DataValueEvent
 
 
@@ -174,3 +175,41 @@ async def test_ringbuffer_push_is_scoped_for_anonymous_page_connections(monkeypa
 
     assert [m["entry"]["datapoint_id"] for m in scoped_ringbuffer] == [allowed_id]
     assert [m["entry"]["datapoint_id"] for m in unrestricted_ringbuffer] == [allowed_id, blocked_id]
+
+
+@pytest.mark.asyncio
+async def test_page_allowed_datapoints_collects_nested_config_strings():
+    nested_dp_id = str(uuid4())
+
+    page_config = {
+        "grid_cols": 12,
+        "grid_row_height": 80,
+        "background": None,
+        "widgets": [
+            {
+                "id": str(uuid4()),
+                "type": "horizontal_bar",
+                "x": 0,
+                "y": 0,
+                "w": 2,
+                "h": 2,
+                "datapoint_id": str(uuid4()),
+                "status_datapoint_id": None,
+                "config": {
+                    "bars": [
+                        {"label": "A", "datapoint_id": nested_dp_id},
+                        {"label": "B", "datapoint_id": str(uuid4())},
+                    ],
+                },
+            },
+        ],
+    }
+
+    class _DbStub:
+        async def fetchone(self, _sql, _params):
+            return {"page_config": json.dumps(page_config)}
+
+    ids = await _page_allowed_datapoints(_DbStub(), "page-1")
+
+    assert ids is not None
+    assert nested_dp_id in ids

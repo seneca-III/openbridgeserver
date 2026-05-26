@@ -194,15 +194,25 @@ async def _page_allowed_datapoints(db: Database, page_id: str) -> set[str] | Non
     except Exception:
         return None
 
+    def _collect_strings(value: Any, out: set[str]) -> None:
+        if isinstance(value, str):
+            out.add(value)
+            return
+        if isinstance(value, dict):
+            for nested in value.values():
+                _collect_strings(nested, out)
+            return
+        if isinstance(value, list):
+            for nested in value:
+                _collect_strings(nested, out)
+
     ids: set[str] = set()
     for widget in page.widgets:
         if widget.datapoint_id:
             ids.add(widget.datapoint_id)
         if widget.status_datapoint_id:
             ids.add(widget.status_datapoint_id)
-        for value in widget.config.values():
-            if isinstance(value, str):
-                ids.add(value)
+        _collect_strings(widget.config, ids)
     return ids
 
 
