@@ -11,6 +11,7 @@ const { getSvg, isSvgIcon, svgIconName } = useIcons()
 
 const isSvg = computed(() => isSvgIcon(props.icon))
 const svgBlobUrl = ref('')
+let loadToken = 0
 
 function resetBlobUrl() {
   if (svgBlobUrl.value) {
@@ -20,10 +21,12 @@ function resetBlobUrl() {
 }
 
 async function load() {
+  const token = ++loadToken
   resetBlobUrl()
   if (!isSvg.value) return
 
   const svgContent = await getSvg(svgIconName(props.icon))
+  if (token !== loadToken) return
   if (!svgContent) return
 
   const blob = new Blob([svgContent], { type: 'image/svg+xml' })
@@ -32,7 +35,10 @@ async function load() {
 
 onMounted(load)
 watch(() => props.icon, load)
-onBeforeUnmount(resetBlobUrl)
+onBeforeUnmount(() => {
+  loadToken += 1
+  resetBlobUrl()
+})
 </script>
 
 <template>
@@ -47,7 +53,7 @@ onBeforeUnmount(resetBlobUrl)
     class="inline-block w-[1em] h-[1em] object-contain brightness-0 dark:invert"
     loading="lazy"
     decoding="async"
-  >
+  />
 
   <!-- Placeholder while loading or on error -->
   <span v-else class="inline-block opacity-30">▪</span>
