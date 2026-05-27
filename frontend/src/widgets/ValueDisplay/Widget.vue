@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Chart, LineController, LineElement, PointElement, LinearScale, Filler, Tooltip } from 'chart.js'
+import { useI18n } from 'vue-i18n'
 import { history } from '@/api/client'
 import { useIcons } from '@/composables/useIcons'
 import { useDatapointsStore } from '@/stores/datapoints'
@@ -35,6 +36,7 @@ const props = defineProps<{
   h?: number
 }>()
 
+const { t } = useI18n()
 const dpStore = useDatapointsStore()
 const { getSvg, isSvgIcon, svgIconName } = useIcons()
 
@@ -429,8 +431,8 @@ const quality = computed(() => props.value?.q ?? null)
 
     <!-- Quality indicator -->
     <div class="flex justify-end w-full mt-0.5">
-      <span v-if="quality === 'bad'" class="w-2 h-2 rounded-full bg-red-500" title="Qualität: schlecht" />
-      <span v-else-if="quality === 'uncertain'" class="w-2 h-2 rounded-full bg-yellow-400" title="Qualität: undefiniert" />
+      <span v-if="quality === 'bad'" class="w-2 h-2 rounded-full bg-red-500" :title="t('widgets.valuedisplay.qualityBadTitle')" />
+      <span v-else-if="quality === 'uncertain'" class="w-2 h-2 rounded-full bg-yellow-400" :title="t('widgets.valuedisplay.qualityUncertainTitle')" />
     </div>
   </div>
 
@@ -464,7 +466,7 @@ const quality = computed(() => props.value?.q ?? null)
     <div
       class="w-full min-h-0 cursor-pointer rounded overflow-hidden"
       style="flex: 2"
-      :title="editorMode ? '' : 'Klicken für Vollansicht'"
+        :title="editorMode ? '' : t('widgets.valuedisplay.clickForFullViewTitle')"
       @click="!editorMode && (modalOpen = true)"
     >
       <canvas v-if="!editorMode" ref="canvasEl" class="w-full h-full" />
@@ -504,8 +506,8 @@ const quality = computed(() => props.value?.q ?? null)
       </svg>
     </div>
     <div class="flex justify-end w-full mt-0.5">
-      <span v-if="quality === 'bad'" class="w-2 h-2 rounded-full bg-red-500" title="Qualität: schlecht" />
-      <span v-else-if="quality === 'uncertain'" class="w-2 h-2 rounded-full bg-yellow-400" title="Qualität: undefiniert" />
+      <span v-if="quality === 'bad'" class="w-2 h-2 rounded-full bg-red-500" :title="t('widgets.valuedisplay.qualityBadTitle')" />
+      <span v-else-if="quality === 'uncertain'" class="w-2 h-2 rounded-full bg-yellow-400" :title="t('widgets.valuedisplay.qualityUncertainTitle')" />
     </div>
   </div>
 
@@ -547,8 +549,8 @@ const quality = computed(() => props.value?.q ?? null)
       </svg>
     </div>
     <div class="flex justify-end w-full mt-0.5">
-      <span v-if="quality === 'bad'" class="w-2 h-2 rounded-full bg-red-500" title="Qualität: schlecht" />
-      <span v-else-if="quality === 'uncertain'" class="w-2 h-2 rounded-full bg-yellow-400" title="Qualität: undefiniert" />
+      <span v-if="quality === 'bad'" class="w-2 h-2 rounded-full bg-red-500" :title="t('widgets.valuedisplay.qualityBadTitle')" />
+      <span v-else-if="quality === 'uncertain'" class="w-2 h-2 rounded-full bg-yellow-400" :title="t('widgets.valuedisplay.qualityUncertainTitle')" />
     </div>
   </div>
 
@@ -599,7 +601,7 @@ const quality = computed(() => props.value?.q ?? null)
             <select
               v-model="modalTimeRange"
               class="text-xs bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:border-blue-500 cursor-pointer"
-              title="Zeitbereich wählen"
+              :title="t('widgets.valuedisplay.selectTimeRangeTitle')"
             >
               <option v-for="p in TIME_RANGE_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
             </select>
