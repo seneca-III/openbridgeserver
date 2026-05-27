@@ -30,6 +30,11 @@ router = APIRouter(tags=["icons"])
 _SVG_RE = re.compile(rb"<svg[\s>]", re.IGNORECASE)
 
 
+def _is_javascript_url(value: str) -> bool:
+    normalized = re.sub(r"[\x00-\x20]+", "", value).lower()
+    return normalized.startswith("javascript:")
+
+
 def _secure_filename(filename: str) -> str:
     """Minimal werkzeug-free secure_filename:
     strips path separators, keeps only alphanumeric, hyphens, underscores, dots,
@@ -108,8 +113,6 @@ def _is_svg(content: bytes) -> bool:
     return bool(_SVG_RE.search(content[:2048]))
 
 
-
-
 def _sanitize_svg_content(content: bytes) -> bytes | None:
     """Remove active SVG content (scripts, event handlers, javascript: URLs)."""
     try:
@@ -118,29 +121,38 @@ def _sanitize_svg_content(content: bytes) -> bytes | None:
     except ET.ParseError:
         return None
 
-    if root.tag.split('}')[-1].lower() != 'svg':
+    if root.tag.split("}")[-1].lower() != "svg":
         return None
 
-    banned_tags = {'script', 'foreignobject'}
-    xlink_href = '{http://www.w3.org/1999/xlink}href'
+    banned_tags = {"script", "foreignobject"}
+    animation_tags = {"animate", "set"}
 
     def scrub(node: ET.Element) -> None:
         for child in list(node):
-            if child.tag.split('}')[-1].lower() in banned_tags:
+            child_tag = child.tag.split("}")[-1].lower()
+            if child_tag in banned_tags:
                 node.remove(child)
-            else:
-                scrub(child)
+                continue
+            if child_tag in animation_tags:
+                target_attr = (child.attrib.get("attributeName") or "").strip().lower()
+                if target_attr in {"href", "xlink:href"}:
+                    node.remove(child)
+                    continue
+            scrub(child)
 
         for attr in list(node.attrib):
-            lower = attr.lower()
-            value = (node.attrib.get(attr) or '').strip().lower()
-            if lower.startswith('on'):
+            lower = attr.split("}")[-1].lower()
+            value = node.attrib.get(attr) or ""
+            if lower.startswith("on"):
                 del node.attrib[attr]
-            elif lower in {'href', xlink_href} and value.startswith('javascript:'):
+            elif lower == "href" and _is_javascript_url(value):
                 del node.attrib[attr]
 
     scrub(root)
-    return ET.tostring(root, encoding='utf-8')
+    if root.tag.startswith("{http://www.w3.org/2000/svg}"):
+        ET.register_namespace("", "http://www.w3.org/2000/svg")
+    return ET.tostring(root, encoding="utf-8")
+
 
 def _safe_name(filename: str) -> str | None:
     """Return a sanitised icon name (stem only, alphanumeric + hyphen/underscore,

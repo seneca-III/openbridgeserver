@@ -6,7 +6,7 @@ FastAPI app or database connection.
 
 from __future__ import annotations
 
-from obs.api.v1.icons import _is_svg, _safe_name
+from obs.api.v1.icons import _is_svg, _safe_name, _sanitize_svg_content
 
 # ---------------------------------------------------------------------------
 # _is_svg
@@ -119,3 +119,34 @@ class TestSafeName:
         # _safe_name(member) — dadurch wird der Slash vorher entfernt.
         member = "folder/home.svg"
         assert _safe_name(Path(member).name) == "home"
+
+
+class TestSanitizeSvgContent:
+    def test_preserves_svg_tag_names_without_ns0_prefix(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><path d="M1 1"/></svg>'
+        sanitized = _sanitize_svg_content(svg)
+        assert sanitized is not None
+        text = sanitized.decode("utf-8")
+        assert "<svg" in text
+        assert "<path" in text
+        assert "ns0:" not in text
+
+    def test_removes_javascript_href_with_encoded_whitespace(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><a href="java&#x09;script:alert(1)">x</a></svg>'
+        sanitized = _sanitize_svg_content(svg)
+        assert sanitized is not None
+        text = sanitized.decode("utf-8").lower()
+        assert "javascript:" not in text
+        assert "href=" not in text
+
+    def test_removes_animate_targeting_href(self):
+        svg = (
+            b'<svg xmlns="http://www.w3.org/2000/svg">'
+            b'<a href="https://example.com">'
+            b'<animate attributeName="href" values="javascript:alert(1)" />'
+            b"</a></svg>"
+        )
+        sanitized = _sanitize_svg_content(svg)
+        assert sanitized is not None
+        text = sanitized.decode("utf-8").lower()
+        assert "<animate" not in text
