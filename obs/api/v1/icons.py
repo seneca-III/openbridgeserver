@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from obs.api.auth import get_admin_user, get_current_user
+from obs.api.auth import get_current_user
 from obs.config import get_settings
 from obs.db.database import Database, get_db
 
@@ -241,7 +241,7 @@ async def list_icons(
 @router.post("/import", response_model=ImportResult)
 async def import_icons(
     files: list[UploadFile] = File(...),
-    _user: str = Depends(get_admin_user),
+    _user: str = Depends(get_current_user),
 ) -> ImportResult:
     """Upload one or more SVG files or a ZIP archive containing SVGs.
     Each file is validated to confirm it actually contains SVG markup,

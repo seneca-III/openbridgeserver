@@ -7,11 +7,13 @@ Each test uses its own temporary icons directory to avoid cross-test pollution.
 from __future__ import annotations
 
 import io
+import uuid
 import zipfile
 from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from obs.api.auth import create_access_token
 
 pytestmark = pytest.mark.integration
 
@@ -203,6 +205,29 @@ async def test_import_svg_with_admin_api_key(client, auth_headers, icons_tmp):
     )
     assert resp.status_code == 200, resp.text
     assert (icons_tmp / "home.svg").exists()
+
+
+@pytest.mark.asyncio
+async def test_import_svg_with_non_admin_user(client, auth_headers, icons_tmp):
+    username = f"icons-user-{uuid.uuid4().hex[:8]}"
+    password = "pw-12345678"
+    create_user = await client.post(
+        "/api/v1/auth/users",
+        headers=auth_headers,
+        json={"username": username, "password": password, "is_admin": False},
+    )
+    assert create_user.status_code == 201, create_user.text
+    try:
+        user_headers = {"Authorization": f"Bearer {create_access_token(username)}"}
+        resp = await client.post(
+            "/api/v1/icons/import",
+            headers=user_headers,
+            files=[("files", ("user-icon.svg", _MINIMAL_SVG, "image/svg+xml"))],
+        )
+        assert resp.status_code == 200, resp.text
+        assert (icons_tmp / "user-icon.svg").exists()
+    finally:
+        await client.delete(f"/api/v1/auth/users/{username}", headers=auth_headers)
 
 
 # ---------------------------------------------------------------------------
