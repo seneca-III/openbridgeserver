@@ -9,10 +9,26 @@ const emit = defineEmits<{
   (e: 'update:modelValue', val: Record<string, unknown>): void
 }>()
 
+const SAFE_SANDBOX_TOKENS = new Set([
+  'allow-popups',
+  'allow-forms',
+  'allow-popups-to-escape-sandbox',
+  'allow-top-navigation-by-user-activation',
+])
+const DEFAULT_SANDBOX = 'allow-popups allow-forms'
+
+function sanitizeSandbox(value: string): string {
+  const tokens = value
+    .split(/\s+/)
+    .filter(token => SAFE_SANDBOX_TOKENS.has(token))
+  const uniqueTokens = Array.from(new Set(tokens))
+  return uniqueTokens.join(' ') || DEFAULT_SANDBOX
+}
+
 const cfg = reactive({
   label:           (props.modelValue.label           as string)  ?? '',
   url:             (props.modelValue.url             as string)  ?? '',
-  sandbox:         (props.modelValue.sandbox         as string)  ?? 'allow-popups allow-forms',
+  sandbox:         sanitizeSandbox((props.modelValue.sandbox as string) ?? DEFAULT_SANDBOX),
   allowFullscreen: (props.modelValue.allowFullscreen as boolean) ?? false,
   aspectRatio:     (props.modelValue.aspectRatio     as string)  ?? '16/9',
 })
@@ -20,7 +36,7 @@ const cfg = reactive({
 watch(() => props.modelValue, (v) => {
   cfg.label           = (v.label           as string)  ?? ''
   cfg.url             = (v.url             as string)  ?? ''
-  cfg.sandbox         = (v.sandbox         as string)  ?? 'allow-popups allow-forms'
+  cfg.sandbox         = sanitizeSandbox((v.sandbox as string) ?? DEFAULT_SANDBOX)
   cfg.allowFullscreen = (v.allowFullscreen as boolean) ?? false
   cfg.aspectRatio     = (v.aspectRatio     as string)  ?? '16/9'
 })
@@ -28,8 +44,6 @@ watch(() => props.modelValue, (v) => {
 watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
 
 const SANDBOX_OPTIONS = [
-  { key: 'allow-same-origin',              label: 'Same-Origin (Cookies, localStorage)' },
-  { key: 'allow-scripts',                  label: 'Skripte (JavaScript)' },
   { key: 'allow-popups',                   label: 'Popups & Links' },
   { key: 'allow-forms',                    label: 'Formulare' },
   { key: 'allow-popups-to-escape-sandbox', label: 'Popups aus Sandbox entlassen' },
@@ -37,15 +51,15 @@ const SANDBOX_OPTIONS = [
 ]
 
 function hasSandbox(key: string): boolean {
-  return cfg.sandbox.split(' ').includes(key)
+  return cfg.sandbox.split(/\s+/).includes(key)
 }
 
 function toggleSandbox(key: string) {
-  const parts = cfg.sandbox ? cfg.sandbox.split(' ').filter(Boolean) : []
+  const parts = cfg.sandbox ? cfg.sandbox.split(/\s+/).filter(Boolean) : []
   const idx = parts.indexOf(key)
   if (idx >= 0) parts.splice(idx, 1)
   else parts.push(key)
-  cfg.sandbox = parts.join(' ')
+  cfg.sandbox = sanitizeSandbox(parts.join(' '))
 }
 
 const ASPECT_RATIOS = [
@@ -90,7 +104,7 @@ const isValidUrl = computed(() => {
         class="w-full bg-gray-800 border rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
         :class="isValidUrl ? 'border-gray-700' : 'border-red-500'"
       />
-      <p v-if="!isValidUrl" class="mt-1 text-xs text-red-400">Ungültige URL (nur http/https erlaubt)</p>
+      <p v-if="!isValidUrl" class="mt-1 text-xs text-red-400">Ungültige URL</p>
     </div>
 
     <!-- Seitenverhältnis -->

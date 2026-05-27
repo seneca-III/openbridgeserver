@@ -3,6 +3,21 @@ import { computed } from 'vue'
 import type { DataPointValue } from '@/types'
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:'])
+const SAFE_SANDBOX_TOKENS = new Set([
+  'allow-popups',
+  'allow-forms',
+  'allow-popups-to-escape-sandbox',
+  'allow-top-navigation-by-user-activation',
+])
+const DEFAULT_SANDBOX = 'allow-popups allow-forms'
+
+function sanitizeSandbox(value: string): string {
+  const tokens = value
+    .split(/\s+/)
+    .filter(token => SAFE_SANDBOX_TOKENS.has(token))
+  const uniqueTokens = Array.from(new Set(tokens))
+  return uniqueTokens.join(' ') || DEFAULT_SANDBOX
+}
 
 const props = defineProps<{
   config: Record<string, unknown>
@@ -29,8 +44,7 @@ const safeUrl = computed(() => {
 })
 
 const safeSandbox = computed(() => {
-  const value = sandboxRaw.value.trim()
-  return value || 'allow-popups allow-forms'
+  return sanitizeSandbox(sandboxRaw.value)
 })
 
 const containerStyle = computed((): Record<string, string> => {
