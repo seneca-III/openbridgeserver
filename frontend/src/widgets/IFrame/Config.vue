@@ -18,18 +18,19 @@ const SAFE_SANDBOX_TOKENS = new Set([
 ])
 const DEFAULT_SANDBOX = 'allow-popups allow-forms'
 
-function sanitizeSandbox(value: string): string {
+function sanitizeSandbox(value: unknown): string {
+  if (value == null) return DEFAULT_SANDBOX
+  if (typeof value !== 'string') return DEFAULT_SANDBOX
   const tokens = value
     .split(/\s+/)
     .filter(token => SAFE_SANDBOX_TOKENS.has(token))
-  const uniqueTokens = Array.from(new Set(tokens))
-  return uniqueTokens.join(' ') || DEFAULT_SANDBOX
+  return Array.from(new Set(tokens)).join(' ')
 }
 
 const cfg = reactive({
   label:           (props.modelValue.label           as string)  ?? '',
   url:             (props.modelValue.url             as string)  ?? '',
-  sandbox:         sanitizeSandbox((props.modelValue.sandbox as string) ?? DEFAULT_SANDBOX),
+  sandbox:         sanitizeSandbox(props.modelValue.sandbox),
   allowFullscreen: (props.modelValue.allowFullscreen as boolean) ?? false,
   aspectRatio:     (props.modelValue.aspectRatio     as string)  ?? '16/9',
 })
@@ -37,7 +38,7 @@ const cfg = reactive({
 watch(() => props.modelValue, (v) => {
   cfg.label           = (v.label           as string)  ?? ''
   cfg.url             = (v.url             as string)  ?? ''
-  cfg.sandbox         = sanitizeSandbox((v.sandbox as string) ?? DEFAULT_SANDBOX)
+  cfg.sandbox         = sanitizeSandbox(v.sandbox)
   cfg.allowFullscreen = (v.allowFullscreen as boolean) ?? false
   cfg.aspectRatio     = (v.aspectRatio     as string)  ?? '16/9'
 })

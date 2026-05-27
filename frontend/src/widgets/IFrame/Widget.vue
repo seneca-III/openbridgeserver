@@ -12,12 +12,13 @@ const SAFE_SANDBOX_TOKENS = new Set([
 ])
 const DEFAULT_SANDBOX = 'allow-popups allow-forms'
 
-function sanitizeSandbox(value: string): string {
+function sanitizeSandbox(value: unknown): string {
+  if (value == null) return DEFAULT_SANDBOX
+  if (typeof value !== 'string') return ''
   const tokens = value
     .split(/\s+/)
     .filter(token => SAFE_SANDBOX_TOKENS.has(token))
-  const uniqueTokens = Array.from(new Set(tokens))
-  return uniqueTokens.join(' ') || DEFAULT_SANDBOX
+  return Array.from(new Set(tokens)).join(' ')
 }
 
 const props = defineProps<{
@@ -31,7 +32,7 @@ const { t } = useI18n()
 
 const label           = computed(() => (props.config.label           as string)  ?? '')
 const urlRaw          = computed(() => (props.config.url             as string)  ?? '')
-const sandboxRaw      = computed(() => (props.config.sandbox         as string)  ?? '')
+const sandboxRaw      = computed(() => props.config.sandbox)
 const allowFullscreen = computed(() => (props.config.allowFullscreen as boolean) ?? false)
 const aspectRatio     = computed(() => (props.config.aspectRatio     as string)  ?? '16/9')
 
