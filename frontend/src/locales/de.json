@@ -478,6 +478,9 @@
     },
     "iframe": {
       "url": "URL",
+      "labelPlaceholder": "z.B. Wetterkarte, Kalender …",
+      "configureUrl": "URL konfigurieren",
+      "noUrlConfigured": "Keine URL konfiguriert",
       "aspectRatio": "Seitenverhältnis",
       "aspectFree": "Frei (Höhe füllen)",
       "sandbox": "Sandbox-Berechtigungen",

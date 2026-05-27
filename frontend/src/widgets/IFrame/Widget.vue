@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { DataPointValue } from '@/types'
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:'])
@@ -26,6 +27,7 @@ const props = defineProps<{
   statusValue: DataPointValue | null
   editorMode: boolean
 }>()
+const { t } = useI18n()
 
 const label           = computed(() => (props.config.label           as string)  ?? '')
 const urlRaw          = computed(() => (props.config.url             as string)  ?? '')
@@ -70,7 +72,7 @@ const containerStyle = computed((): Record<string, string> => {
       class="flex-1 flex flex-col items-center justify-center text-gray-500 gap-2 bg-gray-800/40"
     >
       <span class="text-4xl">🖼️</span>
-      <span class="text-xs">URL konfigurieren</span>
+      <span class="text-xs">{{ t('widgets.iframe.configureUrl') }}</span>
     </div>
 
     <!-- Kein URL im Live-Modus -->
@@ -78,7 +80,7 @@ const containerStyle = computed((): Record<string, string> => {
       v-else-if="!safeUrl"
       class="flex-1 flex items-center justify-center text-gray-600 text-xs bg-gray-900"
     >
-      Keine URL konfiguriert
+      {{ t('widgets.iframe.noUrlConfigured') }}
     </div>
 
     <!-- iFrame -->

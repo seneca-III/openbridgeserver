@@ -478,6 +478,9 @@
     },
     "iframe": {
       "url": "URL",
+      "labelPlaceholder": "e.g. weather map, calendar …",
+      "configureUrl": "Configure URL",
+      "noUrlConfigured": "No URL configured",
       "aspectRatio": "Aspect ratio",
       "aspectFree": "Free (fill height)",
       "sandbox": "Sandbox permissions",
