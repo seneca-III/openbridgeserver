@@ -200,6 +200,9 @@ async def websocket_endpoint(
 ) -> None:
     auth_ok, reason = await _authenticate_ws_request(ws)
     if not auth_ok:
+        # Accept then close so browser clients receive a concrete WS close code
+        # (e.g. 4001) instead of only an HTTP upgrade rejection.
+        await ws.accept()
         await ws.close(code=4001, reason=reason)
         return
 

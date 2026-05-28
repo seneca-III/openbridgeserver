@@ -60,8 +60,21 @@ async def test_authenticate_ws_rejects_missing_credentials():
 async def test_websocket_endpoint_rejects_query_token_without_supported_auth():
     ws = _FakeWebSocket(query_params={"token": "legacy-query-token"})
     await ws_api.websocket_endpoint(ws)
-    assert ws.accepted is False
+    assert ws.accepted is True
     assert ws.close_calls == [(4001, "Missing credentials")]
+
+
+@pytest.mark.asyncio
+async def test_websocket_endpoint_closes_invalid_subprotocol_token_with_4001(monkeypatch):
+    def _decode_token(_token: str, expected_type: str = "access") -> str:
+        raise HTTPException(401, f"Wrong token type: {expected_type}")
+
+    monkeypatch.setattr(auth_api, "decode_token", _decode_token)
+
+    ws = _FakeWebSocket(subprotocols=["obs.jwt.invalid.jwt.token"])
+    await ws_api.websocket_endpoint(ws)
+    assert ws.accepted is True
+    assert ws.close_calls == [(4001, "Invalid token")]
 
 
 @pytest.mark.asyncio
