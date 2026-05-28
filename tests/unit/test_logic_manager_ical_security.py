@@ -147,16 +147,43 @@ def test_preserve_same_origin_credentials_not_applied_cross_origin() -> None:
 
 
 def test_logical_cookie_store_carries_domain_cookie_across_subdomain_redirect() -> None:
-    store: dict[tuple[str, str, str, bool], str] = {}
+    store: dict[tuple[str, str, str, bool], tuple[str, bool]] = {}
     _store_response_cookies(store, ["sid=abc; Domain=.example.com; Path=/"], "https://auth.example.com/login")
     assert _build_cookie_header(store, "https://calendar.example.com/feed.ics") == "sid=abc"
 
 
 def test_logical_cookie_store_keeps_host_only_cookie_scoped() -> None:
-    store: dict[tuple[str, str, str, bool], str] = {}
+    store: dict[tuple[str, str, str, bool], tuple[str, bool]] = {}
     _store_response_cookies(store, ["sid=abc; Path=/"], "https://auth.example.com/login")
     assert _build_cookie_header(store, "https://auth.example.com/feed.ics") == "sid=abc"
     assert _build_cookie_header(store, "https://calendar.example.com/feed.ics") == ""
+
+
+def test_logical_cookie_default_path_uses_response_directory() -> None:
+    store: dict[tuple[str, str, str, bool], tuple[str, bool]] = {}
+    _store_response_cookies(store, ["sid=abc"], "https://example.com/login")
+    assert _build_cookie_header(store, "https://example.com/feed.ics") == "sid=abc"
+
+
+def test_logical_cookie_path_matching_uses_segment_boundary() -> None:
+    store: dict[tuple[str, str, str, bool], tuple[str, bool]] = {}
+    _store_response_cookies(store, ["sid=abc; Path=/auth"], "https://example.com/auth/login")
+    assert _build_cookie_header(store, "https://example.com/auth/feed.ics") == "sid=abc"
+    assert _build_cookie_header(store, "https://example.com/authz/feed.ics") == ""
+
+
+def test_logical_cookie_secure_not_sent_over_http() -> None:
+    store: dict[tuple[str, str, str, bool], tuple[str, bool]] = {}
+    _store_response_cookies(store, ["sid=abc; Secure; Path=/"], "https://example.com/login")
+    assert _build_cookie_header(store, "https://example.com/feed.ics") == "sid=abc"
+    assert _build_cookie_header(store, "http://example.com/feed.ics") == ""
+
+
+def test_logical_cookie_deletion_via_max_age_removes_cookie() -> None:
+    store: dict[tuple[str, str, str, bool], tuple[str, bool]] = {}
+    _store_response_cookies(store, ["sid=abc; Path=/"], "https://example.com/login")
+    _store_response_cookies(store, ["sid=; Max-Age=0; Path=/"], "https://example.com/login")
+    assert _build_cookie_header(store, "https://example.com/feed.ics") == ""
 
 
 def test_read_limited_response_body_raises_on_large_response() -> None:

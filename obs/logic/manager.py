@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import email.utils
 import http.cookies
 import ipaddress
 import json
@@ -158,11 +159,26 @@ def _cookie_path_matches(request_path: str, cookie_path: str) -> bool:
         req = f"/{req}"
     if not path.startswith("/"):
         path = f"/{path}"
-    return req.startswith(path)
+    if req == path:
+        return True
+    if not req.startswith(path):
+        return False
+    if path.endswith("/"):
+        return True
+    return len(req) > len(path) and req[len(path)] == "/"
+
+
+def _default_cookie_path(request_path: str) -> str:
+    path = request_path or "/"
+    if not path.startswith("/"):
+        return "/"
+    if path.count("/") <= 1:
+        return "/"
+    return path.rsplit("/", 1)[0] or "/"
 
 
 def _store_response_cookies(
-    cookie_store: dict[tuple[str, str, str, bool], str],
+    cookie_store: dict[tuple[str, str, str, bool], tuple[str, bool]],
     set_cookie_headers: list[str],
     logical_url: str,
 ) -> None:
@@ -170,9 +186,7 @@ def _store_response_cookies(
     if not parsed or not parsed.hostname:
         return
     hostname = parsed.hostname.encode("idna").decode("ascii").lower()
-    default_path = parsed.path or "/"
-    if not default_path.startswith("/"):
-        default_path = f"/{default_path}"
+    default_path = _default_cookie_path(parsed.path or "/")
     for raw in set_cookie_headers:
         jar = http.cookies.SimpleCookie()
         try:
@@ -190,22 +204,46 @@ def _store_response_cookies(
             path = (morsel["path"] or default_path).strip() or "/"
             if not path.startswith("/"):
                 path = f"/{path}"
-            cookie_store[(domain, path, name, host_only)] = value
+            max_age = (morsel["max-age"] or "").strip()
+            expires = (morsel["expires"] or "").strip()
+            delete_cookie = False
+            if max_age:
+                try:
+                    delete_cookie = int(max_age) <= 0
+                except ValueError:
+                    pass
+            if not delete_cookie and expires:
+                try:
+                    exp_dt = email.utils.parsedate_to_datetime(expires)
+                    if exp_dt.tzinfo is None:
+                        exp_dt = exp_dt.replace(tzinfo=UTC)
+                    delete_cookie = exp_dt <= datetime.now(UTC)
+                except Exception:
+                    pass
+            key = (domain, path, name, host_only)
+            if delete_cookie:
+                cookie_store.pop(key, None)
+                continue
+            secure = bool(morsel["secure"])
+            cookie_store[key] = (value, secure)
 
 
-def _build_cookie_header(cookie_store: dict[tuple[str, str, str, bool], str], logical_url: str) -> str:
+def _build_cookie_header(cookie_store: dict[tuple[str, str, str, bool], tuple[str, bool]], logical_url: str) -> str:
     parsed = _parse_http_url(logical_url)
     if not parsed or not parsed.hostname:
         return ""
     hostname = parsed.hostname.encode("idna").decode("ascii").lower()
     req_path = parsed.path or "/"
+    is_https = parsed.scheme == "https"
     matched: list[tuple[str, str]] = []
-    for (domain, path, name, host_only), value in cookie_store.items():
+    for (domain, path, name, host_only), (value, secure) in cookie_store.items():
         if host_only and hostname != domain:
             continue
         if not host_only and not _cookie_domain_matches(hostname, domain):
             continue
         if not _cookie_path_matches(req_path, path):
+            continue
+        if secure and not is_https:
             continue
         matched.append((name, value))
     return "; ".join(f"{name}={value}" for name, value in matched)
@@ -625,7 +663,7 @@ class LogicManager:
                 try:
                     current_url = url
                     active_origin: tuple[str, str, int] | None = None
-                    logical_cookie_store: dict[tuple[str, str, str, bool], str] = {}
+                    logical_cookie_store: dict[tuple[str, str, str, bool], tuple[str, bool]] = {}
                     for redirect_count in range(_ICAL_MAX_REDIRECTS + 1):
                         fetch_urls, headers, extensions = await asyncio.to_thread(_build_ical_fetch_targets, current_url)
                         cookie_header = _build_cookie_header(logical_cookie_store, current_url)
