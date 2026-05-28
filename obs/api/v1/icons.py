@@ -118,7 +118,7 @@ def _sanitize_svg_content(content: bytes) -> bytes | None:
     try:
         parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=False))
         root = ET.fromstring(content, parser=parser)
-    except ET.ParseError:
+    except (ET.ParseError, LookupError, UnicodeError):
         return None
 
     if root.tag.split("}")[-1].lower() != "svg":
