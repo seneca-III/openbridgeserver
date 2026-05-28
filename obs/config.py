@@ -135,10 +135,11 @@ def _get_env_case_insensitive(*env_keys: str) -> str | None:
 def _import_legacy_env_vars() -> None:
     """Import OPENTWS_* variables as OBS_* when OBS_* is not set."""
     legacy_prefix = "OPENTWS_"
+    legacy_prefix_upper = legacy_prefix.upper()
     new_prefix = "OBS_"
 
     for key, value in list(os.environ.items()):
-        if not key.startswith(legacy_prefix):
+        if not key.upper().startswith(legacy_prefix_upper):
             continue
         mapped_key = f"{new_prefix}{key[len(legacy_prefix) :]}"
         if not _has_env_key_case_insensitive(mapped_key):
@@ -152,6 +153,10 @@ def _resolve_default_db_path(default_path: str = "/data/obs.db") -> str:
     if not new_path.exists() and legacy_path.exists():
         return str(legacy_path)
     return default_path
+
+
+def _is_builtin_default_db_path(path: str) -> bool:
+    return Path(path).as_posix() == "/data/obs.db"
 
 
 _import_legacy_env_vars()
@@ -204,11 +209,20 @@ class Settings(BaseSettings):
             return result
 
         if isinstance(database_value, dict):
-            has_path = any(isinstance(key, str) and key.lower() == "path" for key in database_value)
-            if not has_path:
+            path_key = next(
+                (key for key in database_value if isinstance(key, str) and key.lower() == "path"),
+                None,
+            )
+            if path_key is None:
                 merged_database = dict(database_value)
                 merged_database["path"] = default_path
                 result[database_key] = merged_database
+            else:
+                current_path = database_value.get(path_key)
+                if isinstance(current_path, str) and _is_builtin_default_db_path(current_path):
+                    merged_database = dict(database_value)
+                    merged_database[path_key] = default_path
+                    result[database_key] = merged_database
 
         return result
 

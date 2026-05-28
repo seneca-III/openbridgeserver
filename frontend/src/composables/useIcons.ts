@@ -23,7 +23,7 @@ function sanitizeSvg(raw: string): string {
       const localName = (attr.localName || attr.name).toLowerCase()
       const normalizedValue = attr.value.toLowerCase().replace(/[\u0000-\u0020]+/g, '')
 
-      if (name === 'width' || name === 'height') {
+      if (el === svg && (name === 'width' || name === 'height')) {
         el.removeAttribute(attr.name)
         continue
       }
