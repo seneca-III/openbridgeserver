@@ -33,8 +33,8 @@ export const useWebSocketStore = defineStore('websocket', () => {
     _shouldReconnect = true
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const url   = `${proto}://${window.location.host}/api/v1/ws?token=${encodeURIComponent(token)}`
-    const ws    = new WebSocket(url)
+    const url   = `${proto}://${window.location.host}/api/v1/ws`
+    const ws    = new WebSocket(url, [`obs.jwt.${token}`])
     _ws.value   = ws
 
     ws.onopen = () => {
@@ -80,10 +80,11 @@ export const useWebSocketStore = defineStore('websocket', () => {
       } catch { /* ignore malformed */ }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (evt) => {
       connected.value = false
       clearInterval(_pingInterval)
       _ws.value = null
+      if (evt?.code === 4001) _shouldReconnect = false
       // Reconnect after 5 s
       if (!_shouldReconnect) return
       _reconnectTimer = setTimeout(() => {

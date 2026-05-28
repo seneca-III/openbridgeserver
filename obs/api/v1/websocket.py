@@ -19,9 +19,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from obs.db.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -195,25 +198,9 @@ def init_ws_manager() -> WebSocketManager:
 async def websocket_endpoint(
     ws: WebSocket,
 ) -> None:
-    # Auth required for websocket access.
-    from obs.api.auth import decode_token
-
-    auth_header = ws.headers.get("authorization", "")
-    token_query = ws.query_params.get("token")
-
-    if auth_header.startswith("Bearer "):
-        resolved_token: str | None = auth_header[7:]
-    else:
-        resolved_token = token_query
-
-    if not resolved_token:
-        await ws.close(code=4001, reason="Missing token")
-        return
-
-    try:
-        decode_token(resolved_token)
-    except Exception:
-        await ws.close(code=4001, reason="Invalid token")
+    auth_ok, reason = await _authenticate_ws_request(ws)
+    if not auth_ok:
+        await ws.close(code=4001, reason=reason)
         return
 
     manager = get_ws_manager()
@@ -249,3 +236,52 @@ async def websocket_endpoint(
         logger.exception("WebSocket error for connection %s", conn_id[:8])
     finally:
         await manager.disconnect(conn_id)
+
+
+def _extract_subprotocol_jwt(ws: WebSocket) -> str | None:
+    """Extract JWT from subprotocol token: `obs.jwt.<jwt>`."""
+    subprotocols = ws.scope.get("subprotocols", [])
+    for subprotocol in subprotocols:
+        if subprotocol.startswith("obs.jwt.") and len(subprotocol) > len("obs.jwt."):
+            return subprotocol.removeprefix("obs.jwt.")
+    return None
+
+
+async def _authenticate_ws_request(ws: WebSocket) -> tuple[bool, str]:
+    """Validate auth for websocket handshake.
+
+    Accepted auth inputs:
+    - Authorization: Bearer <jwt>
+    - Sec-WebSocket-Protocol: obs.jwt.<jwt>
+    - X-API-Key: <obs_... key>
+    """
+    from obs.api.auth import decode_token, hash_api_key
+
+    auth_header = ws.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            decode_token(auth_header[7:])
+            return True, "OK"
+        except Exception:
+            return False, "Invalid token"
+
+    subprotocol_jwt = _extract_subprotocol_jwt(ws)
+    if subprotocol_jwt:
+        try:
+            decode_token(subprotocol_jwt)
+            return True, "OK"
+        except Exception:
+            return False, "Invalid token"
+
+    api_key = ws.headers.get("x-api-key")
+    if api_key:
+        db = get_db()
+        key_hash = hash_api_key(api_key)
+        row = await db.fetchone("SELECT name FROM api_keys WHERE key_hash=?", (key_hash,))
+        if not row:
+            return False, "Invalid API key"
+        now = datetime.now(UTC).isoformat()
+        await db.execute_and_commit("UPDATE api_keys SET last_used_at=? WHERE key_hash=?", (now, key_hash))
+        return True, "OK"
+
+    return False, "Missing credentials"
