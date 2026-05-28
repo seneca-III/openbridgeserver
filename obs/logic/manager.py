@@ -17,7 +17,7 @@ import socket
 import uuid
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 
@@ -51,6 +51,7 @@ _THROTTLE_UNITS: dict[str, float] = {
 _ICAL_MAX_BYTES = 1_048_576
 _ICAL_MAX_REDIRECTS = 5
 _ICAL_ALLOWED_CONTENT_TYPES = ("text/calendar", "application/ics", "application/octet-stream", "text/plain")
+_NAT64_WELL_KNOWN_PREFIX = ipaddress.IPv6Network("64:ff9b::/96")
 
 
 def _parse_http_url(url: str) -> Any | None:
@@ -73,10 +74,65 @@ def _resolve_public_http_host(hostname: str, port: int | None) -> list[str]:
     addresses: list[str] = []
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip in _NAT64_WELL_KNOWN_PREFIX:
+            embedded_v4 = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+            if not embedded_v4.is_global:
+                return []
         if not ip.is_global:
             return []
         addresses.append(info[4][0])
     return addresses
+
+
+def _origin_tuple(parsed: Any) -> tuple[str, str, int] | None:
+    if not parsed or not parsed.hostname or parsed.scheme not in {"http", "https"}:
+        return None
+    try:
+        hostname_ascii = parsed.hostname.encode("idna").decode("ascii")
+        port = parsed.port
+    except (UnicodeError, ValueError):
+        return None
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return parsed.scheme, hostname_ascii, port
+
+
+def _preserve_same_origin_credentials(current_url: str, redirected_url: str) -> str:
+    current_parsed = _parse_http_url(current_url)
+    redirected_parsed = _parse_http_url(redirected_url)
+    if not current_parsed or not redirected_parsed:
+        return redirected_url
+    if redirected_parsed.username is not None:
+        return redirected_url
+    if _origin_tuple(current_parsed) != _origin_tuple(redirected_parsed):
+        return redirected_url
+    if current_parsed.username is None:
+        return redirected_url
+
+    username = quote(unquote(current_parsed.username), safe="")
+    password = None if current_parsed.password is None else quote(unquote(current_parsed.password), safe="")
+    hostname = redirected_parsed.hostname
+    if not hostname:
+        return redirected_url
+    try:
+        host_for_netloc = hostname.encode("idna").decode("ascii")
+        ip = ipaddress.ip_address(host_for_netloc)
+        if isinstance(ip, ipaddress.IPv6Address):
+            host_for_netloc = f"[{host_for_netloc}]"
+    except UnicodeError:
+        return redirected_url
+    except ValueError:
+        pass
+    try:
+        port = redirected_parsed.port
+    except ValueError:
+        return redirected_url
+
+    auth = username if password is None else f"{username}:{password}"
+    netloc = f"{auth}@{host_for_netloc}"
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return redirected_parsed._replace(netloc=netloc).geturl()
 
 
 def _build_ical_fetch_targets(url: str) -> tuple[list[str], dict[str, str], dict[str, str]]:
@@ -95,6 +151,12 @@ def _build_ical_fetch_targets(url: str) -> tuple[list[str], dict[str, str], dict
     if not addresses:
         raise ValueError(f"Blocked non-public iCal URL: {url}")
     host_header = hostname_ascii
+    try:
+        ip = ipaddress.ip_address(hostname_ascii)
+        if isinstance(ip, ipaddress.IPv6Address):
+            host_header = f"[{hostname_ascii}]"
+    except ValueError:
+        pass
     if port is not None:
         default_port = 443 if parsed.scheme == "https" else 80
         if port != default_port:
@@ -494,32 +556,37 @@ class LogicManager:
             url_changed = hyst_node.get("fetched_url") != url
             needs_fetch = url_changed or last_fetch is None or (execute_now.timestamp() - last_fetch) >= refresh_min * 60
             if needs_fetch:
+                active_client: httpx.AsyncClient | None = None
                 try:
                     current_url = url
+                    active_origin: tuple[str, str, int] | None = None
                     for redirect_count in range(_ICAL_MAX_REDIRECTS + 1):
                         fetch_urls, headers, extensions = await asyncio.to_thread(_build_ical_fetch_targets, current_url)
+                        current_origin = _origin_tuple(_parse_http_url(current_url))
+                        if current_origin != active_origin:
+                            if active_client is not None:
+                                await active_client.aclose()
+                            active_client = httpx.AsyncClient(timeout=30.0)
+                            active_origin = current_origin
+                        if active_client is None:
+                            raise ValueError("Could not initialize iCal HTTP client")
                         redirected_to: str | None = None
                         _ct = ""
                         _resp_bytes = b""
                         last_transport_error: Exception | None = None
                         for fetch_url in fetch_urls:
                             try:
-                                # Use a separate client per attempt to avoid reusing TLS sessions
-                                # across different redirect hostnames.
-                                async with httpx.AsyncClient(timeout=30.0) as _hclient:
-                                    async with _hclient.stream("GET", fetch_url, headers=headers, extensions=extensions) as _resp:
-                                        if _resp.status_code in {301, 302, 303, 307, 308}:
-                                            location = _resp.headers.get("location")
-                                            if not location:
-                                                raise ValueError("iCal redirect without Location header")
-                                            redirected_to = urljoin(current_url, location)
-                                            break
-                                        _resp.raise_for_status()
-                                        _ct = _resp.headers.get("content-type", "").lower()
-                                        if _ct and not any(t in _ct for t in _ICAL_ALLOWED_CONTENT_TYPES):
-                                            raise ValueError(f"Unsupported iCal content-type: {_ct}")
-                                        _resp_bytes = await _read_limited_response_body(_resp, _ICAL_MAX_BYTES)
+                                async with active_client.stream("GET", fetch_url, headers=headers, extensions=extensions) as _resp:
+                                    if _resp.status_code in {301, 302, 303, 307, 308}:
+                                        location = _resp.headers.get("location")
+                                        if not location:
+                                            raise ValueError("iCal redirect without Location header")
+                                        redirected_to = _preserve_same_origin_credentials(current_url, urljoin(current_url, location))
                                         break
+                                    _resp.raise_for_status()
+                                    _ct = _resp.headers.get("content-type", "").lower()
+                                    _resp_bytes = await _read_limited_response_body(_resp, _ICAL_MAX_BYTES)
+                                    break
                             except httpx.RequestError as req_exc:
                                 last_transport_error = req_exc
                                 continue
@@ -532,6 +599,13 @@ class LogicManager:
                             raise last_transport_error
                         if not _resp_bytes:
                             raise ValueError(f"Could not fetch iCal URL after trying {len(fetch_urls)} address(es)")
+                        if _ct and not any(t in _ct for t in _ICAL_ALLOWED_CONTENT_TYPES):
+                            logger.debug(
+                                "Graph %s: non-standard iCal content-type %r for %s; validating by body signature",
+                                graph_id[:8],
+                                _ct,
+                                current_url,
+                            )
                         # Decode with charset from Content-Type; many iCal servers
                         # omit the charset and serve Latin-1 (e.g. c-trace.de).
                         # Try strict UTF-8 first; fall back to Latin-1 which always
@@ -558,6 +632,9 @@ class LogicManager:
                         break
                 except Exception as _exc:
                     logger.warning("Graph %s: iCal fetch failed for node %s (%s): %s", graph_id[:8], node.id[:8], url, _exc)
+                finally:
+                    if active_client is not None:
+                        await active_client.aclose()
 
         executor = GraphExecutor(flow, hyst, self._app_config)
         try:

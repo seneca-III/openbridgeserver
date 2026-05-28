@@ -6,7 +6,13 @@ import socket
 
 import pytest
 
-from obs.logic.manager import _build_ical_fetch_target, _build_ical_fetch_targets, _is_public_http_url, _read_limited_response_body
+from obs.logic.manager import (
+    _build_ical_fetch_target,
+    _build_ical_fetch_targets,
+    _is_public_http_url,
+    _preserve_same_origin_credentials,
+    _read_limited_response_body,
+)
 
 
 def test_is_public_http_url_blocks_non_http_scheme() -> None:
@@ -45,6 +51,14 @@ def test_is_public_http_url_blocks_shared_address_space(monkeypatch) -> None:
     assert _is_public_http_url("http://shared-space.example/calendar.ics") is False
 
 
+def test_is_public_http_url_blocks_nat64_embedded_private_ipv4(monkeypatch) -> None:
+    def _fake_getaddrinfo(*_args, **_kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::0a00:0001", 80, 0, 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
+    assert _is_public_http_url("http://nat64.example/calendar.ics") is False
+
+
 def test_build_ical_fetch_target_pins_ip_and_sets_host_and_sni(monkeypatch) -> None:
     def _fake_getaddrinfo(*_args, **_kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
@@ -54,6 +68,18 @@ def test_build_ical_fetch_target_pins_ip_and_sets_host_and_sni(monkeypatch) -> N
     assert fetch_url == "https://93.184.216.34/calendar.ics"
     assert headers == {"Host": "example.com"}
     assert extensions == {"sni_hostname": "example.com"}
+
+
+def test_build_ical_fetch_target_brackets_ipv6_literal_host_header(monkeypatch) -> None:
+    ipv6 = "2606:2800:220:1:248:1893:25c8:1946"
+
+    def _fake_getaddrinfo(*_args, **_kwargs):
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (ipv6, 443, 0, 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
+    fetch_url, headers, _extensions = _build_ical_fetch_target(f"https://[{ipv6}]/calendar.ics")
+    assert fetch_url == f"https://[{ipv6}]/calendar.ics"
+    assert headers["Host"] == f"[{ipv6}]"
 
 
 def test_build_ical_fetch_targets_tries_all_validated_addresses(monkeypatch) -> None:
@@ -106,6 +132,16 @@ def test_build_ical_fetch_target_encodes_idn_host_for_dns_and_sni(monkeypatch) -
     assert captured_hostnames == ["xn--mnich-kva.example"]
     assert headers["Host"] == "xn--mnich-kva.example"
     assert extensions == {"sni_hostname": "xn--mnich-kva.example"}
+
+
+def test_preserve_same_origin_credentials_on_absolute_redirect() -> None:
+    preserved = _preserve_same_origin_credentials("https://user:p%40ss@example.com/a", "https://example.com/b")
+    assert preserved == "https://user:p%40ss@example.com/b"
+
+
+def test_preserve_same_origin_credentials_not_applied_cross_origin() -> None:
+    preserved = _preserve_same_origin_credentials("https://user:pass@example.com/a", "https://other.example/b")
+    assert preserved == "https://other.example/b"
 
 
 def test_read_limited_response_body_raises_on_large_response() -> None:
