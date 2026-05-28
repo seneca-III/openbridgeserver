@@ -182,6 +182,7 @@ async def test_page_allowed_datapoints_collects_only_datapoint_fields():
     nested_dp_id = str(uuid4())
     not_a_datapoint_uuid = str(uuid4())
     source_page_id_uuid = str(uuid4())
+    entity_dp_id = str(uuid4())
 
     page_config = {
         "grid_cols": 12,
@@ -204,6 +205,9 @@ async def test_page_allowed_datapoints_collects_only_datapoint_fields():
                     ],
                     "source_page_id": source_page_id_uuid,
                     "description": str(uuid4()),
+                    "entities": [
+                        {"id": entity_dp_id, "label": str(uuid4())},
+                    ],
                 },
             },
         ],
@@ -217,6 +221,7 @@ async def test_page_allowed_datapoints_collects_only_datapoint_fields():
 
     assert ids is not None
     assert nested_dp_id in ids
+    assert entity_dp_id in ids
     assert not_a_datapoint_uuid not in ids
     assert source_page_id_uuid not in ids
 

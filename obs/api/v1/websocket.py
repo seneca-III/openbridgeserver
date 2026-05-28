@@ -229,8 +229,10 @@ async def _page_allowed_datapoints(
             return True
         if key.endswith(("_dp", "_dp_id", "_datapoint_id")):
             return True
-        # Info widget: extra_datapoints[].id
-        if key == "id" and parent_key == "extra_datapoints":
+        # Widgets with array items that store datapoint IDs as `id`.
+        # - Info: extra_datapoints[].id
+        # - Energiefluss: entities[].id
+        if key == "id" and parent_key in {"extra_datapoints", "entities"}:
             return True
         return False
 
