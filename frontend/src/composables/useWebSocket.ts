@@ -13,6 +13,7 @@ import { getJwt, getWriteContext } from '@/api/client'
 type MessageHandler = (data: Record<string, unknown>) => void
 
 const WS_PREFIX = 'obs.jwt.'
+const WS_SESSION_PREFIX = 'obs.session.'
 
 type SocketContext = {
   url: string
@@ -25,10 +26,11 @@ const getSocketContext = (): SocketContext => {
   const ctx = getWriteContext()
   const params = new URLSearchParams()
   if (ctx.pageId) params.set('page_id', ctx.pageId)
-  if (ctx.sessionToken) params.set('session_token', ctx.sessionToken)
   const query = params.toString()
   const url = `${proto}://${location.host}/api/v1/ws${query ? `?${query}` : ''}`
-  return jwt ? { url, protocols: [`${WS_PREFIX}${jwt}`] } : { url }
+  if (jwt) return { url, protocols: [`${WS_PREFIX}${jwt}`] }
+  if (ctx.sessionToken) return { url, protocols: [`${WS_SESSION_PREFIX}${ctx.sessionToken}`] }
+  return { url }
 }
 
 // ── Singleton-State ───────────────────────────────────────────────────────────

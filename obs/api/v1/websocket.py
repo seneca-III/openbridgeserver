@@ -205,17 +205,45 @@ async def _page_allowed_datapoints(
 ) -> set[str] | None:
     """Return datapoint IDs referenced by a PAGE node, or None if page does not exist."""
 
-    def _collect_strings(value: Any, out: set[str]) -> None:
-        if isinstance(value, str):
-            out.add(value)
-            return
+    datapoint_keys_exact = {
+        "datapoint_id",
+        "status_datapoint_id",
+        "dp_id",
+        "house_dp",
+        "secondary_dp_id",
+        "actual_temp_dp_id",
+        "mode_dp_id",
+    }
+
+    def _is_uuid_str(value: str) -> bool:
+        try:
+            uuid.UUID(value)
+            return True
+        except (TypeError, ValueError):
+            return False
+
+    def _is_datapoint_config_key(key: str, parent_key: str | None) -> bool:
+        if key in datapoint_keys_exact:
+            return True
+        if key.startswith("dp_"):
+            return True
+        if key.endswith(("_dp", "_dp_id", "_datapoint_id")):
+            return True
+        # Info widget: extra_datapoints[].id
+        if key == "id" and parent_key == "extra_datapoints":
+            return True
+        return False
+
+    def _collect_datapoint_ids(value: Any, out: set[str], *, parent_key: str | None = None) -> None:
         if isinstance(value, dict):
-            for nested in value.values():
-                _collect_strings(nested, out)
+            for key, nested in value.items():
+                if isinstance(nested, str) and _is_datapoint_config_key(key, parent_key) and _is_uuid_str(nested):
+                    out.add(nested)
+                _collect_datapoint_ids(nested, out, parent_key=key)
             return
         if isinstance(value, list):
             for nested in value:
-                _collect_strings(nested, out)
+                _collect_datapoint_ids(nested, out, parent_key=parent_key)
 
     def _non_empty_str(value: Any) -> str | None:
         if isinstance(value, str) and value:
@@ -243,11 +271,11 @@ async def _page_allowed_datapoints(
         out: set[str],
         visited_refs: set[tuple[str, str]],
     ) -> None:
-        if widget.datapoint_id:
+        if widget.datapoint_id and _is_uuid_str(widget.datapoint_id):
             out.add(widget.datapoint_id)
-        if widget.status_datapoint_id:
+        if widget.status_datapoint_id and _is_uuid_str(widget.status_datapoint_id):
             out.add(widget.status_datapoint_id)
-        _collect_strings(widget.config, out)
+        _collect_datapoint_ids(widget.config, out)
 
         if widget.type != "widget_ref":
             return
@@ -287,18 +315,32 @@ async def _page_allowed_datapoints(
     return ids
 
 
-def _extract_subprotocol_token(ws: WebSocket) -> tuple[str | None, str | None]:
+def _extract_subprotocol_tokens(ws: WebSocket) -> tuple[str | None, str | None, str | None]:
     offered_subprotocols = ws.scope.get("subprotocols")
     if not isinstance(offered_subprotocols, list):
-        return None, None
+        return None, None, None
 
-    prefix = "obs.jwt."
+    jwt_prefix = "obs.jwt."
+    session_prefix = "obs.session."
+    jwt_token: str | None = None
+    session_token: str | None = None
+    selected: str | None = None
+
     for candidate in offered_subprotocols:
-        if isinstance(candidate, str) and candidate.startswith(prefix):
-            token = candidate.removeprefix(prefix)
-            if token:
-                return token, candidate
-    return None, None
+        if not isinstance(candidate, str):
+            continue
+        if candidate.startswith(jwt_prefix):
+            token = candidate.removeprefix(jwt_prefix)
+            if token and jwt_token is None:
+                jwt_token = token
+                selected = candidate
+        elif candidate.startswith(session_prefix):
+            token = candidate.removeprefix(session_prefix)
+            if token and session_token is None and selected is None:
+                # Use session subprotocol only when no JWT subprotocol is selected.
+                session_token = token
+                selected = candidate
+    return jwt_token, session_token, selected
 
 
 # ---------------------------------------------------------------------------
@@ -346,11 +388,10 @@ async def websocket_endpoint(
     auth_header = ws.headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
         resolved_token = auth_header[7:]
-    if resolved_token is None:
-        subprotocol_token, selected = _extract_subprotocol_token(ws)
-        if subprotocol_token:
-            resolved_token = subprotocol_token
-            selected_subprotocol = selected
+    subprotocol_jwt, subprotocol_session, selected = _extract_subprotocol_tokens(ws)
+    if subprotocol_jwt:
+        resolved_token = subprotocol_jwt
+        selected_subprotocol = selected
     if resolved_token is None:
         query_token = ws.query_params.get("token")
         if query_token:
@@ -377,7 +418,7 @@ async def websocket_endpoint(
             return
 
         db = get_db()
-        session_token = ws.query_params.get("session_token")
+        session_token = subprotocol_session or ws.query_params.get("session_token")
         access, defining_node_id = await _resolve_access_with_node(db, page_id)
         if access == "protected":
             validate_id = defining_node_id or page_id

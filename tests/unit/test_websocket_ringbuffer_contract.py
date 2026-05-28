@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from obs.api.v1.websocket import WebSocketManager, _page_allowed_datapoints
+from obs.api.v1.websocket import WebSocketManager, _extract_subprotocol_tokens, _page_allowed_datapoints
 from obs.core.event_bus import DataValueEvent
 
 
@@ -178,8 +178,10 @@ async def test_ringbuffer_push_is_scoped_for_anonymous_page_connections(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_page_allowed_datapoints_collects_nested_config_strings():
+async def test_page_allowed_datapoints_collects_only_datapoint_fields():
     nested_dp_id = str(uuid4())
+    not_a_datapoint_uuid = str(uuid4())
+    source_page_id_uuid = str(uuid4())
 
     page_config = {
         "grid_cols": 12,
@@ -197,9 +199,11 @@ async def test_page_allowed_datapoints_collects_nested_config_strings():
                 "status_datapoint_id": None,
                 "config": {
                     "bars": [
-                        {"label": "A", "datapoint_id": nested_dp_id},
-                        {"label": "B", "datapoint_id": str(uuid4())},
+                        {"label": not_a_datapoint_uuid, "dp_id": nested_dp_id},
+                        {"label": "B", "dp_id": str(uuid4())},
                     ],
+                    "source_page_id": source_page_id_uuid,
+                    "description": str(uuid4()),
                 },
             },
         ],
@@ -213,6 +217,8 @@ async def test_page_allowed_datapoints_collects_nested_config_strings():
 
     assert ids is not None
     assert nested_dp_id in ids
+    assert not_a_datapoint_uuid not in ids
+    assert source_page_id_uuid not in ids
 
 
 @pytest.mark.asyncio
@@ -350,3 +356,23 @@ async def test_page_allowed_datapoints_skips_widgetref_target_when_access_denied
 
     assert ids is not None
     assert target_dp_id not in ids
+
+
+def test_extract_subprotocol_tokens_prefers_jwt_over_session():
+    ws = SimpleNamespace(scope={"subprotocols": ["obs.session.session-abc", "obs.jwt.jwt-token-123"]})
+
+    jwt_token, session_token, selected = _extract_subprotocol_tokens(ws)
+
+    assert jwt_token == "jwt-token-123"
+    assert session_token == "session-abc"
+    assert selected == "obs.jwt.jwt-token-123"
+
+
+def test_extract_subprotocol_tokens_accepts_session_when_jwt_missing():
+    ws = SimpleNamespace(scope={"subprotocols": ["obs.session.session-only-token"]})
+
+    jwt_token, session_token, selected = _extract_subprotocol_tokens(ws)
+
+    assert jwt_token is None
+    assert session_token == "session-only-token"
+    assert selected == "obs.session.session-only-token"
