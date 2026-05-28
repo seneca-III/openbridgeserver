@@ -195,22 +195,26 @@ def init_ws_manager() -> WebSocketManager:
 async def websocket_endpoint(
     ws: WebSocket,
 ) -> None:
-    # Auth: optional — authenticated users get a user context, anonymous users
-    # can still subscribe to public datapoints (read-only push channel).
+    # Auth required for websocket access.
     from obs.api.auth import decode_token
 
     auth_header = ws.headers.get("authorization", "")
+    token_query = ws.query_params.get("token")
+
     if auth_header.startswith("Bearer "):
         resolved_token: str | None = auth_header[7:]
     else:
-        resolved_token = None
+        resolved_token = token_query
 
-    if resolved_token is not None:
-        try:
-            decode_token(resolved_token)
-        except Exception:
-            await ws.close(code=4001, reason="Invalid token")
-            return
+    if not resolved_token:
+        await ws.close(code=4001, reason="Missing token")
+        return
+
+    try:
+        decode_token(resolved_token)
+    except Exception:
+        await ws.close(code=4001, reason="Invalid token")
+        return
 
     manager = get_ws_manager()
     conn_id = await manager.connect(ws)
