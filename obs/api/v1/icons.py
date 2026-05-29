@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import httpx
@@ -27,14 +28,8 @@ from obs.db.database import Database, get_db
 router = APIRouter(tags=["icons"])
 
 _SVG_RE = re.compile(rb"<svg[\s>]", re.IGNORECASE)
-
-
-_DANGEROUS_SVG_PATTERNS: tuple[re.Pattern[bytes], ...] = (
-    re.compile(rb"<\s*script\b", re.IGNORECASE),
-    re.compile(rb"<\s*foreignObject\b", re.IGNORECASE),
-    re.compile(rb"\bon[a-z0-9_-]+\s*=", re.IGNORECASE),
-    re.compile(rb'\b(?:href|xlink:href)\s*=\s*["\']\s*(?:javascript:|data:)', re.IGNORECASE),
-)
+_SVG_MAX_DEPTH = 256
+_SVG_DOCTYPE_RE = re.compile(r"<!DOCTYPE", re.IGNORECASE)
 
 
 def _secure_filename(filename: str) -> str:
@@ -115,14 +110,69 @@ def _is_svg(content: bytes) -> bool:
     return bool(_SVG_RE.search(content[:2048]))
 
 
-def _sanitize_svg(content: bytes) -> bytes | None:
-    """Reject SVGs with active markup that can execute script in the browser."""
-    if not _is_svg(content):
-        return None
-    for pattern in _DANGEROUS_SVG_PATTERNS:
-        if pattern.search(content):
-            return None
-    return content
+def _sanitize_svg(content: bytes) -> bytes:
+    """Remove executable/dangerous SVG constructs and return sanitized UTF-8 bytes."""
+    try:
+        decoded = content.decode("utf-8")
+        if _SVG_DOCTYPE_RE.search(decoded):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Ungültiges SVG (DOCTYPE ist nicht erlaubt)",
+            )
+        root = ET.fromstring(decoded)
+    except (UnicodeDecodeError, ET.ParseError):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Ungültiges SVG (XML konnte nicht gelesen werden)",
+        )
+
+    def local_name(tag: str) -> str:
+        return tag.split("}", 1)[-1].lower()
+
+    blocked_tags = {
+        "script",
+        "foreignobject",
+        "iframe",
+        "object",
+        "embed",
+        "animate",
+        "animatemotion",
+        "animatetransform",
+        "set",
+    }
+    stack: list[tuple[ET.Element | None, ET.Element, int]] = [(None, root, 0)]
+
+    while stack:
+        parent, elem, depth = stack.pop()
+        if depth > _SVG_MAX_DEPTH:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Ungültiges SVG (zu tief verschachtelt)",
+            )
+
+        tag_name = local_name(elem.tag)
+        if tag_name in blocked_tags:
+            if parent is not None:
+                parent.remove(elem)
+            continue
+
+        for attr in list(elem.attrib):
+            attr_name = local_name(attr)
+            value = elem.attrib.get(attr) or ""
+            normalized_scheme = re.sub(r"[\x00-\x20]+", "", value).lower()
+            if attr_name.startswith("on"):
+                del elem.attrib[attr]
+            elif attr_name in {"href", "xlink:href"} and normalized_scheme.startswith("javascript:"):
+                del elem.attrib[attr]
+
+        for child in list(elem):
+            stack.append((elem, child, depth + 1))
+
+    if local_name(root.tag) != "svg":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Ungültiges SVG")
+    if root.tag.startswith("{"):
+        ET.register_namespace("", root.tag.split("}", 1)[0][1:])
+    return ET.tostring(root, encoding="utf-8", xml_declaration=False)
 
 
 def _safe_name(filename: str) -> str | None:
@@ -217,6 +267,7 @@ async def import_icons(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Keine Dateien empfangen")
 
     icons_dir = _icons_dir()
+    pending_writes: dict[str, bytes] = {}
     imported: list[str] = []
     skipped = 0
 
@@ -239,15 +290,14 @@ async def import_icons(
                         member_lower = member.lower()
                         if member_lower.endswith(".svg") or not Path(member).suffix:
                             member_bytes = zf.read(member)
-                            sanitized = _sanitize_svg(member_bytes)
-                            if sanitized is None:
+                            if not _is_svg(member_bytes):
                                 skipped += 1
                                 continue
                             name = _safe_name(Path(member).name)
                             if not name:
                                 skipped += 1
                                 continue
-                            (icons_dir / f"{name}.svg").write_bytes(sanitized)
+                            pending_writes[name] = _sanitize_svg(member_bytes)
                             if name not in imported:
                                 imported.append(name)
                         else:
@@ -259,19 +309,21 @@ async def import_icons(
                 )
         else:
             # --- Single file: validate as SVG ---
-            sanitized = _sanitize_svg(content)
-            if sanitized is None:
+            if not _is_svg(content):
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    f"'{filename}' enthält kein gültiges/sicheres SVG",
+                    f"'{filename}' enthält kein gültiges SVG (kein <svg> Tag gefunden)",
                 )
             name = _safe_name(filename)
             if not name:
                 skipped += 1
                 continue
-            (icons_dir / f"{name}.svg").write_bytes(sanitized)
+            pending_writes[name] = _sanitize_svg(content)
             if name not in imported:
                 imported.append(name)
+
+    for name, svg_bytes in pending_writes.items():
+        (icons_dir / f"{name}.svg").write_bytes(svg_bytes)
 
     return ImportResult(
         imported=len(imported),
