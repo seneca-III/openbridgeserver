@@ -376,7 +376,7 @@
           </div>
 
           <div class="form-group">
-            <label class="label">Standard-Zeitraum (Stunden)</label>
+            <label class="label">{{ $t('settings.history.defaultWindowHoursLabel') }}</label>
             <input
               v-model.number="histForm.default_window_hours"
               type="number"
@@ -384,9 +384,7 @@
               max="8760"
               class="input text-sm"
             />
-            <p class="text-xs text-slate-500 mt-1">
-              Gilt für History-API-Aufrufe ohne <span class="font-mono">from</span>-Parameter.
-            </p>
+            <p class="text-xs text-slate-500 mt-1">{{ $t('settings.history.defaultWindowHoursHint') }}</p>
           </div>
 
           <!-- InfluxDB settings -->
@@ -394,9 +392,9 @@
             <div class="form-group">
               <label class="label">{{ $t('settings.history.version') }}</label>
               <select v-model.number="histForm.influx_version" class="input text-sm">
-                <option :value="1">InfluxDB 1.x</option>
-                <option :value="2">InfluxDB 2.x</option>
-                <option :value="3">InfluxDB 3.x</option>
+                <option :value="1">{{ $t('settings.history.influxV1') }}</option>
+                <option :value="2">{{ $t('settings.history.influxV2') }}</option>
+                <option :value="3">{{ $t('settings.history.influxV3') }}</option>
               </select>
             </div>
             <div class="form-group">
@@ -457,9 +455,9 @@
           <!-- TimescaleDB settings -->
           <template v-if="histForm.plugin === 'timescaledb'">
             <div class="form-group">
-              <label class="label">Connection DSN</label>
+              <label class="label">{{ $t('settings.history.connectionDsn') }}</label>
               <input v-model="histForm.timescale_dsn" type="text" class="input text-sm font-mono"
-                placeholder="postgresql://user:pass@localhost:5432/obs" autocomplete="off" />
+                :placeholder="$t('settings.history.connectionDsnPlaceholder')" autocomplete="off" />
 
             </div>
           </template>
@@ -686,7 +684,7 @@
           <div class="form-group">
             <label class="label">{{ $t('settings.icons.faNamesLabel') }}</label>
             <input v-model="faIconNames" type="text" class="input text-sm font-mono"
-              placeholder="home, star, user, arrow-right" data-testid="input-fa-names" />
+              :placeholder="$t('settings.icons.faNamesPlaceholder')" data-testid="input-fa-names" />
           </div>
           <div class="form-group">
             <label class="label">{{ $t('settings.icons.faStyleLabel') }}</label>
@@ -695,7 +693,7 @@
               <option value="regular">Regular</option>
               <option value="brands">Brands</option>
               <template v-if="faSavedKey || faApiKey.trim()">
-                <option disabled class="text-slate-500">── PRO ──</option>
+                <option disabled class="text-slate-500">{{ $t('settings.icons.faStylePro') }}</option>
                 <option value="light">Light</option>
                 <option value="thin">Thin</option>
                 <option value="duotone">Duotone</option>
@@ -1195,7 +1193,13 @@ async function histFilterSetAll(enable) {
 const navLinksSaving  = ref(false)
 const navLinksMsg     = ref(null)
 const navLinkEditId   = ref(null)
-const navLinkForm     = reactive({ label: '', url: '', icon: '', sort_order: 0, open_new_tab: true })
+const navLinkForm     = reactive({
+  label: '',
+  url: '',
+  icon: '',
+  sort_order: 0,
+  open_new_tab: true,
+})
 const navLinkShowForm = ref(false)
 
 function openNavLinkForm(link = null) {
@@ -1204,7 +1208,13 @@ function openNavLinkForm(link = null) {
     Object.assign(navLinkForm, { label: link.label, url: link.url, icon: link.icon, sort_order: link.sort_order, open_new_tab: link.open_new_tab })
   } else {
     navLinkEditId.value = null
-    Object.assign(navLinkForm, { label: '', url: '', icon: '', sort_order: navStore.links.length, open_new_tab: true })
+    Object.assign(navLinkForm, {
+      label: '',
+      url: '',
+      icon: '',
+      sort_order: navStore.links.length,
+      open_new_tab: true,
+    })
   }
   navLinkShowForm.value = true
   navLinksMsg.value = null

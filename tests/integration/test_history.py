@@ -88,6 +88,16 @@ async def _set_history_default_window_hours(hours: int) -> None:
     )
 
 
+async def _set_history_default_window_raw(value: str) -> None:
+    from obs.db.database import get_db
+
+    db = get_db()
+    await db.execute_and_commit(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('history.default_window_hours', ?)",
+        (value,),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests: record_history field returned in API responses
 # ---------------------------------------------------------------------------
@@ -374,4 +384,31 @@ async def test_history_default_window_can_be_changed_via_settings(client, auth_h
         assert 66.0 in values
     finally:
         # Restore project default for subsequent tests.
+        await _set_history_default_window_hours(168)
+
+
+async def test_history_default_window_invalid_value_falls_back_to_default(client, auth_headers):
+    """Invalid history.default_window_hours falls back to 7-day default window."""
+    await _set_history_default_window_raw("not-a-number")
+    try:
+        dp = await _create_dp(
+            client,
+            auth_headers,
+            f"HistTest-WindowInvalid-{uuid.uuid4().hex[:6]}",
+            record_history=True,
+        )
+        dp_id = dp["id"]
+
+        now = datetime.datetime.now(datetime.UTC)
+        old_ts = now - datetime.timedelta(days=8)
+        recent_ts = now - datetime.timedelta(days=1)
+        await _seed_history_value(dp_id, old_ts, 77.0)
+        await _seed_history_value(dp_id, recent_ts, 88.0)
+
+        resp = await client.get(f"/api/v1/history/{dp_id}", headers=auth_headers)
+        assert resp.status_code == 200, f"history query failed: {resp.text}"
+        values = [entry["v"] for entry in resp.json()]
+        assert 88.0 in values, "Recent value (within 7d) missing"
+        assert 77.0 not in values, "Old value (>7d) should be filtered by fallback default"
+    finally:
         await _set_history_default_window_hours(168)
