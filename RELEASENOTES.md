@@ -107,6 +107,7 @@
 * Logicmodule Security (Upstream PR #562): harden notify_pushover image_url fetching against DNS-rebinding SSRF bypass
 * Security: Sanitize uploaded SVG icon content before ValueDisplay `v-html` injection to prevent stored XSS.
 * General: Fix used tags at docker images
+* General Security (Upstream PR #567): prevent tag-name code injection in release workflow
 * General: Implement contract tests for dependencies
 * Backend: History give only last 1000 entries now default 10'000 with amximum of 100'000
 * Adapter ioBroker browse/import preview are blocked when the instance status lags behind the live socket connection
