@@ -30,6 +30,7 @@ from obs import __version__
 from obs.adapters import registry as adapter_registry
 from obs.api.audit import AuditLogWriter, build_audit_context
 from obs.api.auth import get_admin_user, get_current_user
+from obs.api.v1.redaction import redact_sensitive_fields
 from obs.db.database import Database, get_db
 from obs.models.types import DataTypeRegistry
 
@@ -283,6 +284,9 @@ _HISTORY_DEFAULTS: dict[str, str] = {
     "timescale_dsn": "",
 }
 
+_HISTORY_SENSITIVE_FIELDS = ("influx_token", "influx_password", "timescale_dsn")
+
+
 async def _read_history_cfg(db: Database) -> dict[str, str]:
     rows = await db.fetchall("SELECT key, value FROM app_settings WHERE key LIKE 'history.%'")
     cfg = dict(_HISTORY_DEFAULTS)
@@ -300,19 +304,23 @@ async def get_history_settings(
 ) -> HistorySettingsOut:
     """Read current history backend configuration."""
     cfg = await _read_history_cfg(db)
-    return HistorySettingsOut(
-        plugin=cfg["plugin"],
-        default_window_hours=int(cfg["default_window_hours"]),
-        influx_url=cfg["influx_url"],
-        influx_version=int(cfg["influx_version"]),
-        influx_token=cfg["influx_token"],
-        influx_org=cfg["influx_org"],
-        influx_bucket=cfg["influx_bucket"],
-        influx_database=cfg["influx_database"],
-        influx_username=cfg["influx_username"],
-        influx_password=cfg["influx_password"],
-        timescale_dsn=cfg["timescale_dsn"],
+    payload = redact_sensitive_fields(
+        {
+            "plugin": cfg["plugin"],
+            "default_window_hours": int(cfg["default_window_hours"]),
+            "influx_url": cfg["influx_url"],
+            "influx_version": int(cfg["influx_version"]),
+            "influx_token": cfg["influx_token"],
+            "influx_org": cfg["influx_org"],
+            "influx_bucket": cfg["influx_bucket"],
+            "influx_database": cfg["influx_database"],
+            "influx_username": cfg["influx_username"],
+            "influx_password": cfg["influx_password"],
+            "timescale_dsn": cfg["timescale_dsn"],
+        },
+        _HISTORY_SENSITIVE_FIELDS,
     )
+    return HistorySettingsOut(**payload)
 
 
 @router.put("/history/settings", response_model=HistorySettingsOut)
@@ -383,19 +391,23 @@ async def update_history_settings(
         },
     )
 
-    return HistorySettingsOut(
-        plugin=body.plugin,
-        default_window_hours=body.default_window_hours,
-        influx_url=body.influx_url,
-        influx_version=body.influx_version,
-        influx_token=body.influx_token,
-        influx_org=body.influx_org,
-        influx_bucket=body.influx_bucket,
-        influx_database=body.influx_database,
-        influx_username=body.influx_username,
-        influx_password=body.influx_password,
-        timescale_dsn=body.timescale_dsn,
+    payload = redact_sensitive_fields(
+        {
+            "plugin": body.plugin,
+            "default_window_hours": body.default_window_hours,
+            "influx_url": body.influx_url,
+            "influx_version": body.influx_version,
+            "influx_token": body.influx_token,
+            "influx_org": body.influx_org,
+            "influx_bucket": body.influx_bucket,
+            "influx_database": body.influx_database,
+            "influx_username": body.influx_username,
+            "influx_password": body.influx_password,
+            "timescale_dsn": body.timescale_dsn,
+        },
+        _HISTORY_SENSITIVE_FIELDS,
     )
+    return HistorySettingsOut(**payload)
 
 
 @router.post("/history/test", response_model=HistoryTestResult)

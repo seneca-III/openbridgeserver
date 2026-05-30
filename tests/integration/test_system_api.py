@@ -244,6 +244,44 @@ async def test_put_history_settings_writes_audit_log_entry(client, auth_headers)
     )
 
 
+async def test_history_settings_redacts_sensitive_fields_in_responses(client, auth_headers):
+    secret_token = "tok_live_super_secret"
+    secret_password = "pass_live_super_secret"
+
+    try:
+        put_resp = await client.put(
+            "/api/v1/system/history/settings",
+            json={
+                "plugin": "sqlite",
+                "default_window_hours": 48,
+                "influx_token": secret_token,
+                "influx_password": secret_password,
+            },
+            headers=auth_headers,
+        )
+        assert put_resp.status_code == 200
+        put_body = put_resp.json()
+        assert put_body["influx_token"] == "[redacted]"
+        assert put_body["influx_password"] == "[redacted]"
+
+        get_resp = await client.get("/api/v1/system/history/settings", headers=auth_headers)
+        assert get_resp.status_code == 200
+        get_body = get_resp.json()
+        assert get_body["influx_token"] == "[redacted]"
+        assert get_body["influx_password"] == "[redacted]"
+    finally:
+        await client.put(
+            "/api/v1/system/history/settings",
+            json={
+                "plugin": "sqlite",
+                "default_window_hours": 168,
+                "influx_token": "",
+                "influx_password": "",
+            },
+            headers=auth_headers,
+        )
+
+
 # ---------------------------------------------------------------------------
 # POST /history/test
 # ---------------------------------------------------------------------------
