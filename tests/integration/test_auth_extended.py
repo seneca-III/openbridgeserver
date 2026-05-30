@@ -188,9 +188,7 @@ async def test_create_user_duplicate_username_returns_409(client, auth_headers):
 
 
 async def test_create_user_with_mqtt_password(client, auth_headers):
-    user = await _create_test_user(
-        client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass123"
-    )
+    user = await _create_test_user(client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass123")
     try:
         assert user["mqtt_enabled"] is True
         assert user["mqtt_password_set"] is True
@@ -262,9 +260,7 @@ async def test_update_user_rename_conflict_returns_409(client, auth_headers):
 
 
 async def test_update_user_toggle_mqtt_enabled(client, auth_headers):
-    user = await _create_test_user(
-        client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass123"
-    )
+    user = await _create_test_user(client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass123")
     try:
         assert user["mqtt_enabled"] is True
         resp = await client.patch(
@@ -290,9 +286,7 @@ async def test_delete_user_self_returns_400(client, auth_headers):
 
 
 async def test_delete_user_with_mqtt_enabled_syncs_mqtt(client, auth_headers):
-    user = await _create_test_user(
-        client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass123"
-    )
+    user = await _create_test_user(client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass123")
     resp = await client.delete(f"/api/v1/auth/users/{user['username']}", headers=auth_headers)
     assert resp.status_code == 204
 
@@ -372,9 +366,7 @@ async def test_delete_mqtt_password_user_not_found_returns_404(client, auth_head
 
 
 async def test_delete_mqtt_password_success(client, auth_headers):
-    user = await _create_test_user(
-        client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass"
-    )
+    user = await _create_test_user(client, auth_headers, mqtt_enabled=True, mqtt_password="mqttpass")
     try:
         resp = await client.delete(
             f"/api/v1/auth/users/{user['username']}/mqtt-password",
@@ -455,6 +447,7 @@ async def test_access_token_rejected_as_refresh(client, auth_headers):
 async def test_token_without_sub_returns_401(client):
     # Craft a JWT with type=access but no sub — hits the "if not sub" branch
     from obs.config import get_settings
+
     secret = get_settings().security.jwt_secret
     token = jwt.encode({"type": "access"}, secret, algorithm="HS256")
     resp = await client.get("/api/v1/datapoints/", headers={"Authorization": f"Bearer {token}"})

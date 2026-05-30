@@ -51,7 +51,7 @@ async def test_list_tags_includes_created_tag(client, auth_headers):
 
 
 async def test_list_tags_sorted(client, auth_headers):
-    tags = resp = await client.get("/api/v1/datapoints/tags", headers=auth_headers)
+    tags = await client.get("/api/v1/datapoints/tags", headers=auth_headers)
     lst = tags.json()
     assert lst == sorted(lst)
 

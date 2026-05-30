@@ -75,9 +75,19 @@ async def test_export_returns_200(client, auth_headers):
 async def test_export_top_level_shape(client, auth_headers):
     resp = await client.get("/api/v1/config/export", headers=auth_headers)
     body = resp.json()
-    for field in ("obs_version", "exported_at", "datapoints", "bindings", "adapter_instances",
-                  "logic_graphs", "visu_nodes", "nav_links", "app_settings",
-                  "hierarchy_trees", "hierarchy_nodes"):
+    for field in (
+        "obs_version",
+        "exported_at",
+        "datapoints",
+        "bindings",
+        "adapter_instances",
+        "logic_graphs",
+        "visu_nodes",
+        "nav_links",
+        "app_settings",
+        "hierarchy_trees",
+        "hierarchy_nodes",
+    ):
         assert field in body, f"missing top-level field: {field}"
 
 
@@ -142,10 +152,15 @@ async def test_export_db_content_type(client, auth_headers):
 
 
 async def test_import_requires_auth(client):
-    resp = await client.post("/api/v1/config/import", json={
-        "obs_version": "5", "exported_at": "2024-01-01T00:00:00",
-        "datapoints": [], "bindings": [],
-    })
+    resp = await client.post(
+        "/api/v1/config/import",
+        json={
+            "obs_version": "5",
+            "exported_at": "2024-01-01T00:00:00",
+            "datapoints": [],
+            "bindings": [],
+        },
+    )
     assert resp.status_code == 401
 
 
@@ -169,8 +184,15 @@ async def test_import_result_shape(client, auth_headers):
         headers=auth_headers,
     )
     body = resp.json()
-    for field in ("datapoints_created", "datapoints_updated", "bindings_created", "bindings_updated",
-                  "adapter_instances_upserted", "logic_graphs_created", "errors"):
+    for field in (
+        "datapoints_created",
+        "datapoints_updated",
+        "bindings_created",
+        "bindings_updated",
+        "adapter_instances_upserted",
+        "logic_graphs_created",
+        "errors",
+    ):
         assert field in body, f"missing: {field}"
 
 
@@ -203,7 +225,9 @@ async def test_import_creates_new_datapoints(client, auth_headers):
     payload = {
         "obs_version": "5",
         "exported_at": "2024-01-01T00:00:00",
-        "datapoints": [{"id": new_id, "name": f"Imported-{uuid.uuid4().hex[:6]}", "data_type": "FLOAT", "unit": None, "tags": [], "mqtt_alias": None}],
+        "datapoints": [
+            {"id": new_id, "name": f"Imported-{uuid.uuid4().hex[:6]}", "data_type": "FLOAT", "unit": None, "tags": [], "mqtt_alias": None}
+        ],
         "bindings": [],
     }
     resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
@@ -313,16 +337,18 @@ async def test_import_binding_invalid_formula_records_error(client, auth_headers
         "obs_version": "5",
         "exported_at": "2024-01-01T00:00:00",
         "datapoints": [{"id": dp_id, "name": f"FmlDP-{uuid.uuid4().hex[:6]}", "data_type": "FLOAT", "unit": None, "tags": [], "mqtt_alias": None}],
-        "bindings": [{
-            "id": binding_id,
-            "datapoint_id": dp_id,
-            "adapter_type": _ADAPTER_TYPE,
-            "adapter_instance_id": inst_id,
-            "direction": "SOURCE",
-            "config": {},
-            "enabled": True,
-            "value_formula": "x *** invalid $$$$",
-        }],
+        "bindings": [
+            {
+                "id": binding_id,
+                "datapoint_id": dp_id,
+                "adapter_type": _ADAPTER_TYPE,
+                "adapter_instance_id": inst_id,
+                "direction": "SOURCE",
+                "config": {},
+                "enabled": True,
+                "value_formula": "x *** invalid $$$$",
+            }
+        ],
         "adapter_instances": [
             {"id": inst_id, "adapter_type": _ADAPTER_TYPE, "name": f"FmlInst-{uuid.uuid4().hex[:6]}", "config": {}, "enabled": False}
         ],
@@ -331,3 +357,316 @@ async def test_import_binding_invalid_formula_records_error(client, auth_headers
     assert resp.status_code == 200
     # The invalid formula should be rejected and an error recorded
     assert len(resp.json()["errors"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — datapoint UPDATE path (existing DP gets updated)
+# ---------------------------------------------------------------------------
+
+
+async def test_import_updates_existing_datapoint(client, auth_headers):
+    """Re-importing a DP with the same ID triggers the update branch."""
+    dp = await _make_dp(client, auth_headers)
+    export_resp = await client.get("/api/v1/config/export", headers=auth_headers)
+    export_body = export_resp.json()
+
+    # Mutate the name in the export payload then re-import
+    new_name = f"Updated-{uuid.uuid4().hex[:6]}"
+    for i, d in enumerate(export_body["datapoints"]):
+        if d["id"] == dp["id"]:
+            export_body["datapoints"][i]["name"] = new_name
+            break
+
+    resp = await client.post("/api/v1/config/import", json=export_body, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["datapoints_updated"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — legacy adapter_configs migration path
+# ---------------------------------------------------------------------------
+
+
+async def test_import_legacy_adapter_configs(client, auth_headers):
+    """v1 export with adapter_configs and no adapter_instances triggers migration path."""
+    payload = {
+        "obs_version": "1",
+        "exported_at": "2023-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "adapter_instances": [],
+        "adapter_configs": [{"adapter_type": _ADAPTER_TYPE, "config": {}, "enabled": True}],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    # Legacy configs are migrated to instances
+    assert resp.json()["adapter_instances_upserted"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — KNX group addresses
+# ---------------------------------------------------------------------------
+
+
+async def test_import_knx_group_addresses(client, auth_headers):
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "knx_group_addresses": [
+            {"address": "5/5/1", "name": "Test Licht", "description": "Wohnzimmer", "dpt": "DPT1.001"},
+            {"address": "5/5/2", "name": "Test Temp", "description": "Sensor", "dpt": "DPT9.001"},
+        ],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["knx_group_addresses_upserted"] == 2
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — logic graph UPDATE path (same ID re-imported)
+# ---------------------------------------------------------------------------
+
+
+async def test_import_updates_existing_logic_graph(client, auth_headers):
+    graph = await _make_graph(client, auth_headers)
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "logic_graphs": [
+            {
+                "id": graph["id"],
+                "name": f"Reimported-{uuid.uuid4().hex[:6]}",
+                "description": "updated",
+                "enabled": False,
+                "flow_data": {"nodes": [], "edges": []},
+            }
+        ],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["logic_graphs_updated"] == 1
+    assert resp.json()["logic_graphs_created"] == 0
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — binding CREATE path (new binding ID)
+# ---------------------------------------------------------------------------
+
+
+async def test_import_creates_binding(client, auth_headers):
+    dp_id = str(uuid.uuid4())
+    inst_id = str(uuid.uuid4())
+    binding_id = str(uuid.uuid4())
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [{"id": dp_id, "name": f"BindDP-{uuid.uuid4().hex[:6]}", "data_type": "FLOAT", "unit": None, "tags": [], "mqtt_alias": None}],
+        "bindings": [
+            {
+                "id": binding_id,
+                "datapoint_id": dp_id,
+                "adapter_type": _ADAPTER_TYPE,
+                "adapter_instance_id": inst_id,
+                "direction": "SOURCE",
+                "config": {},
+                "enabled": True,
+            }
+        ],
+        "adapter_instances": [
+            {"id": inst_id, "adapter_type": _ADAPTER_TYPE, "name": f"BindInst-{uuid.uuid4().hex[:6]}", "config": {}, "enabled": False}
+        ],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["bindings_created"] == 1
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — binding UPDATE path (same ID re-imported)
+# ---------------------------------------------------------------------------
+
+
+async def test_import_updates_existing_binding(client, auth_headers):
+    """Re-importing a binding with the same ID triggers the UPDATE branch."""
+    export_resp = await client.get("/api/v1/config/export", headers=auth_headers)
+    export_body = export_resp.json()
+    if not export_body["bindings"]:
+        pytest.skip("No bindings to update in current DB state")
+
+    resp = await client.post("/api/v1/config/import", json=export_body, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["bindings_updated"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — visu nodes (topological sort, parent-child)
+# ---------------------------------------------------------------------------
+
+
+async def test_import_visu_nodes(client, auth_headers):
+    root_id = str(uuid.uuid4())
+    child_id = str(uuid.uuid4())
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "visu_nodes": [
+            {
+                "id": root_id,
+                "parent_id": None,
+                "name": "Root Page",
+                "type": "PAGE",
+                "node_order": 0,
+                "icon": None,
+                "access": "public",
+                "access_pin": None,
+                "page_config": "{}",
+                "users": [],
+            },
+            {
+                "id": child_id,
+                "parent_id": root_id,
+                "name": "Child Page",
+                "type": "PAGE",
+                "node_order": 1,
+                "icon": None,
+                "access": None,
+                "access_pin": None,
+                "page_config": "{}",
+                "users": [],
+            },
+        ],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["visu_nodes_upserted"] == 2
+
+
+async def test_import_visu_node_with_missing_parent_records_error(client, auth_headers):
+    """A visu node whose parent_id does not exist should be recorded as an error."""
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "visu_nodes": [
+            {
+                "id": str(uuid.uuid4()),
+                "parent_id": str(uuid.uuid4()),  # non-existent parent
+                "name": "Orphan",
+                "type": "PAGE",
+                "node_order": 0,
+                "icon": None,
+                "access": None,
+                "access_pin": None,
+                "page_config": "{}",
+                "users": [],
+            }
+        ],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    assert len(resp.json()["errors"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — hierarchy trees + nodes + DP links
+# ---------------------------------------------------------------------------
+
+
+async def test_import_hierarchy(client, auth_headers):
+    tree_id = str(uuid.uuid4())
+    node_id = str(uuid.uuid4())
+    dp = await _make_dp(client, auth_headers)
+    link_id = str(uuid.uuid4())
+
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "hierarchy_trees": [{"id": tree_id, "name": "Test Tree", "description": ""}],
+        "hierarchy_nodes": [
+            {
+                "id": node_id,
+                "tree_id": tree_id,
+                "parent_id": None,
+                "name": "Root Node",
+                "description": "",
+                "node_order": 0,
+                "icon": None,
+            }
+        ],
+        "hierarchy_dp_links": [{"id": link_id, "node_id": node_id, "datapoint_id": dp["id"]}],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["hierarchy_upserted"] >= 3  # tree + node + link
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — FA API key
+# ---------------------------------------------------------------------------
+
+
+async def test_import_fa_api_key(client, auth_headers):
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "fa_api_key": "test-fa-key-12345",
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["errors"] == [] or "fa_api_key" not in str(resp.json()["errors"])
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import  — icon import (base64 SVG)
+# ---------------------------------------------------------------------------
+
+
+async def test_import_icon_valid_svg(client, auth_headers):
+    import base64
+
+    minimal_svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
+    content_b64 = base64.b64encode(minimal_svg).decode()
+    payload = {
+        "obs_version": "5",
+        "exported_at": "2024-01-01T00:00:00",
+        "datapoints": [],
+        "bindings": [],
+        "icons": [{"name": f"test-icon-{uuid.uuid4().hex[:6]}", "content_b64": content_b64}],
+    }
+    resp = await client.post("/api/v1/config/import", json=payload, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["icons_imported"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# POST /config/import/db  — invalid magic bytes → 400
+# ---------------------------------------------------------------------------
+
+
+async def test_import_db_invalid_file_returns_400(client, auth_headers):
+    resp = await client.post(
+        "/api/v1/config/import/db",
+        files={"file": ("bad.db", b"this is not a sqlite file at all", "application/octet-stream")},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+async def test_import_db_requires_admin(client):
+    resp = await client.post(
+        "/api/v1/config/import/db",
+        files={"file": ("bad.db", b"x", "application/octet-stream")},
+    )
+    assert resp.status_code == 401

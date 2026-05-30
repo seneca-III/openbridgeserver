@@ -25,17 +25,13 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 _CSV_HEADER = "Group name;Address;Description;DatapointType\n"
-_CSV_ROWS = (
-    "Licht EG;1/1/1;Wohnzimmer Licht;DPT-1\n"
-    "Temperatur EG;1/1/2;Wohnzimmer Temperatur;DPST-9-1\n"
-    "Rolladen EG;1/1/3;Wohnzimmer Rolladen;\n"
-)
+_CSV_ROWS = "Licht EG;1/1/1;Wohnzimmer Licht;DPT-1\nTemperatur EG;1/1/2;Wohnzimmer Temperatur;DPST-9-1\nRolladen EG;1/1/3;Wohnzimmer Rolladen;\n"
 _VALID_CSV = (_CSV_HEADER + _CSV_ROWS).encode("utf-8")
 
 # Folder rows (address contains dash) plus valid rows
 _CSV_WITH_FOLDERS = (
     _CSV_HEADER
-    + "EG;1/-/-;;DPT-1\n"   # folder — skipped by parser
+    + "EG;1/-/-;;DPT-1\n"  # folder — skipped by parser
     + _CSV_ROWS
 ).encode("utf-8")
 
@@ -251,9 +247,7 @@ async def test_import_csv_with_adapter_creates_datapoints(client, auth_headers):
     inst = await _make_adapter_instance(client, auth_headers)
 
     unique_csv = (
-        _CSV_HEADER
-        + f"Sensor-{uuid.uuid4().hex[:4]};9/9/1;Test sensor;DPST-9-1\n"
-        + f"Switch-{uuid.uuid4().hex[:4]};9/9/2;Test switch;DPT-1\n"
+        _CSV_HEADER + f"Sensor-{uuid.uuid4().hex[:4]};9/9/1;Test sensor;DPST-9-1\n" + f"Switch-{uuid.uuid4().hex[:4]};9/9/2;Test switch;DPT-1\n"
     ).encode("utf-8")
 
     resp = await client.post(
@@ -270,10 +264,7 @@ async def test_import_csv_with_adapter_creates_datapoints(client, auth_headers):
 
 async def test_import_csv_with_adapter_direction_dest(client, auth_headers):
     inst = await _make_adapter_instance(client, auth_headers)
-    unique_csv = (
-        _CSV_HEADER
-        + f"Actor-{uuid.uuid4().hex[:4]};8/8/1;Test actor;DPT-1\n"
-    ).encode("utf-8")
+    unique_csv = (_CSV_HEADER + f"Actor-{uuid.uuid4().hex[:4]};8/8/1;Test actor;DPT-1\n").encode("utf-8")
     resp = await client.post(
         "/api/v1/knxproj/import-csv",
         files={"file": ("test.csv", unique_csv, "text/csv")},
@@ -288,12 +279,8 @@ async def test_import_csv_reimport_updates_existing(client, auth_headers):
     inst = await _make_adapter_instance(client, auth_headers)
     unique_addr = f"7/{uuid.uuid4().int % 8}/1"
 
-    first_csv = (
-        _CSV_HEADER + f"First Name;{unique_addr};description;DPT-1\n"
-    ).encode("utf-8")
-    second_csv = (
-        _CSV_HEADER + f"Updated Name;{unique_addr};description;DPT-1\n"
-    ).encode("utf-8")
+    first_csv = (_CSV_HEADER + f"First Name;{unique_addr};description;DPT-1\n").encode("utf-8")
+    second_csv = (_CSV_HEADER + f"Updated Name;{unique_addr};description;DPT-1\n").encode("utf-8")
 
     resp1 = await client.post(
         "/api/v1/knxproj/import-csv",
@@ -368,9 +355,7 @@ async def test_list_group_addresses_item_shape(client, auth_headers):
 
 async def test_list_group_addresses_search_by_name(client, auth_headers):
     unique_name = f"UniqueGA-{uuid.uuid4().hex[:8]}"
-    unique_csv = (
-        _CSV_HEADER + f"{unique_name};2/3/4;search test;DPT-1\n"
-    ).encode("utf-8")
+    unique_csv = (_CSV_HEADER + f"{unique_name};2/3/4;search test;DPT-1\n").encode("utf-8")
     await client.post(
         "/api/v1/knxproj/import-csv",
         files={"file": ("ga.csv", unique_csv, "text/csv")},
