@@ -151,3 +151,14 @@ async def test_device_pa_filter_matches_same_ga_as_knxproj_lookup(client, auth_h
         assert dp_other["id"] not in ids
     finally:
         await client.delete(f"/api/v1/ringbuffer/filtersets/{set_id}", headers=auth_headers)
+        await client.delete(f"/api/v1/datapoints/{dp_match['id']}", headers=auth_headers)
+        await client.delete(f"/api/v1/datapoints/{dp_other['id']}", headers=auth_headers)
+        db = get_db()
+        await db.execute("DELETE FROM knx_co_ga_links WHERE ga_address = ?", (ga,))
+        await db.execute(
+            "DELETE FROM knx_comm_objects WHERE id IN (SELECT id FROM knx_comm_objects WHERE device_id IN (SELECT id FROM knx_devices WHERE individual_address = ?))",
+            (pa,),
+        )
+        await db.execute("DELETE FROM knx_devices WHERE individual_address = ?", (pa,))
+        await db.execute("DELETE FROM knx_group_addresses WHERE address = ?", (ga,))
+        await db.commit()
