@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from obs.api.auth import Principal, get_admin_user, get_current_principal, get_current_user
+from obs.api.auth import Principal, get_admin_user, get_current_principal, get_current_user, optional_current_user
 
 
 class _DbStub:
@@ -36,6 +36,16 @@ async def test_get_current_principal_user_has_type_subject_and_admin(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_get_current_principal_user_without_row_is_not_admin(monkeypatch):
+    monkeypatch.setattr("obs.api.auth.decode_token", lambda token: "alice")
+    db = _DbStub(user_is_admin=None)
+
+    principal = await get_current_principal(credentials=type("Cred", (), {"credentials": "jwt"})(), api_key=None, db=db)
+
+    assert principal == Principal(subject="alice", type="user", is_admin=False)
+
+
+@pytest.mark.asyncio
 async def test_get_current_principal_api_key_uses_non_username_subject(monkeypatch):
     monkeypatch.setattr("obs.api.auth.hash_api_key", lambda key: f"hash:{key}")
     db = _DbStub(api_key_row={"id": "3ff3e934-8d4d-45f6-b4d0-5f6f2272681d", "owner": "admin"})
@@ -44,6 +54,29 @@ async def test_get_current_principal_api_key_uses_non_username_subject(monkeypat
 
     assert principal == Principal(subject="api_key:3ff3e934-8d4d-45f6-b4d0-5f6f2272681d", type="api_key", is_admin=False)
     assert db.updated is True
+
+
+@pytest.mark.asyncio
+async def test_get_current_principal_invalid_api_key_raises_401(monkeypatch):
+    monkeypatch.setattr("obs.api.auth.hash_api_key", lambda key: f"hash:{key}")
+    db = _DbStub(api_key_row=None)
+
+    with pytest.raises(HTTPException) as exc:
+        await get_current_principal(credentials=None, api_key="obs_invalid", db=db)
+
+    assert exc.value.status_code == 401
+    assert "Invalid API key" in str(exc.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_get_current_principal_without_any_auth_raises_401():
+    db = _DbStub()
+
+    with pytest.raises(HTTPException) as exc:
+        await get_current_principal(credentials=None, api_key=None, db=db)
+
+    assert exc.value.status_code == 401
+    assert exc.value.headers == {"WWW-Authenticate": "Bearer"}
 
 
 @pytest.mark.asyncio
@@ -62,6 +95,18 @@ async def test_get_current_user_keeps_legacy_string_for_user_principal(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_optional_current_user_returns_none_on_auth_failure(monkeypatch):
+    async def _raise(*_args, **_kwargs):
+        raise HTTPException(status_code=401, detail="no auth")
+
+    monkeypatch.setattr("obs.api.auth.get_current_user", _raise)
+
+    user = await optional_current_user(credentials=None, api_key=None, db=None)
+
+    assert user is None
+
+
+@pytest.mark.asyncio
 async def test_get_admin_user_rejects_api_key_even_with_admin_flag():
     principal = Principal(subject="ci-key", type="api_key", is_admin=True)
 
@@ -70,3 +115,13 @@ async def test_get_admin_user_rejects_api_key_even_with_admin_flag():
 
     assert exc.value.status_code == 403
     assert "Admin" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_admin_user_rejects_non_admin_user_principal():
+    principal = Principal(subject="alice", type="user", is_admin=False)
+
+    with pytest.raises(HTTPException) as exc:
+        await get_admin_user(principal=principal)
+
+    assert exc.value.status_code == 403
