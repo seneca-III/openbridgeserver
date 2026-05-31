@@ -197,7 +197,8 @@ async def test_search_type_filter(client, auth_headers):
     dp_float = await _create(client, auth_headers, f"SRH-Type-F-{suffix}", data_type="FLOAT")
     dp_bool = await _create(client, auth_headers, f"SRH-Type-B-{suffix}", data_type="BOOLEAN")
     try:
-        body = await _search(client, auth_headers, type="BOOLEAN")
+        # Use the shared suffix as name filter to avoid pagination issues in the shared test DB
+        body = await _search(client, auth_headers, q=suffix, type="BOOLEAN")
         assert dp_bool["id"] in _ids(body)
         assert dp_float["id"] not in _ids(body)
     finally:
@@ -276,7 +277,7 @@ async def test_search_quality_good(client, auth_headers):
     dp = await _create(client, auth_headers, f"SRH-Qual-Good-{suffix}")
     try:
         await _write_value(client, auth_headers, dp["id"], 42.0)
-        body = await _search(client, auth_headers, q=suffix, quality="good")
+        body = await _search(client, auth_headers, q=dp["name"], quality="good")
         assert dp["id"] in _ids(body)
     finally:
         await _delete(client, auth_headers, dp["id"])
@@ -288,7 +289,7 @@ async def test_search_quality_good_excludes_uncertain(client, auth_headers):
     dp = await _create(client, auth_headers, f"SRH-Qual-Unc-{suffix}")
     try:
         # Do NOT write a value — quality stays uncertain
-        body = await _search(client, auth_headers, q=suffix, quality="good")
+        body = await _search(client, auth_headers, q=dp["name"], quality="good")
         assert dp["id"] not in _ids(body)
     finally:
         await _delete(client, auth_headers, dp["id"])
@@ -299,7 +300,7 @@ async def test_search_quality_uncertain(client, auth_headers):
     suffix = uuid.uuid4().hex[:6]
     dp = await _create(client, auth_headers, f"SRH-Qual-Unc2-{suffix}")
     try:
-        body = await _search(client, auth_headers, q=suffix, quality="uncertain")
+        body = await _search(client, auth_headers, q=dp["name"], quality="uncertain")
         assert dp["id"] in _ids(body)
     finally:
         await _delete(client, auth_headers, dp["id"])
