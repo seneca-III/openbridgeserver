@@ -1734,6 +1734,16 @@
       "rootSuffix": "Hierarchiename",
       "only": "(nur \"{example}\")",
       "examples": "(z.B. \"{example}\" — {count} unterschiedliche)"
+    },
+    "card": {
+      "title": "Hierarchie-Zuordnungen",
+      "noAssignment": "Noch keinen Hierarchieknoten zugeordnet.",
+      "removeLink": "Zuordnung entfernen",
+      "searchPlaceholder": "Knoten suchen — z.B. Raum, Heizung …",
+      "noResults": "Keine Knoten gefunden.",
+      "assigned": "{treeName} › {nodeName} zugeordnet",
+      "errorAssign": "Fehler beim Zuordnen",
+      "errorRemove": "Fehler beim Entfernen"
     }
   },
   "topbar": {

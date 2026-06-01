@@ -1734,6 +1734,16 @@
       "rootSuffix": "root level",
       "only": "(only \"{example}\")",
       "examples": "(e.g. \"{example}\" — {count} different)"
+    },
+    "card": {
+      "title": "Hierarchy Assignments",
+      "noAssignment": "No hierarchy node assigned yet.",
+      "removeLink": "Remove assignment",
+      "searchPlaceholder": "Search nodes — e.g. Room, Heating …",
+      "noResults": "No nodes found.",
+      "assigned": "{treeName} › {nodeName} assigned",
+      "errorAssign": "Error assigning",
+      "errorRemove": "Error removing"
     }
   },
   "topbar": {
