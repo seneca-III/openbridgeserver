@@ -93,7 +93,7 @@
       "bottom-left": "Bottom left",
       "bottom-right": "Bottom right"
     },
-    "hintClick": "Click → insert",
+    "hintClick": "Click → insert (first free position)",
     "hintDrag": "Drag → move",
     "hintResize": "↘ Handle → resize",
     "hintDelete": "Del → delete widget",
@@ -119,7 +119,8 @@
     "posX": "X",
     "posY": "Y",
     "widthShort": "W",
-    "heightShort": "H"
+    "heightShort": "H",
+    "hintPaletteDrag": "Drag from palette → place directly"
   },
   "viewer": {
     "noVisuSelected": "No visu selected"
@@ -692,9 +693,9 @@
       "alignLeft": "Left",
       "alignCenter": "Centre",
       "alignRight": "Right",
-    "markdownRef": "Markdown quick reference",
-    "noText": "No text"
-  },
+      "markdownRef": "Markdown quick reference",
+      "noText": "No text"
+    },
     "toggle": {
       "states": "States",
       "stateOn": "ON (true)",
