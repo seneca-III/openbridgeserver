@@ -28,7 +28,7 @@
 
         <!-- Verbindung -->
         <div v-show="activeTab === 'connection'" class="p-4 flex flex-col h-full">
-          <p class="text-xs text-slate-500 mb-3 shrink-0">{{ nodeDef?.description }}</p>
+          <p class="text-xs text-slate-500 mb-3 shrink-0">{{ nodeDescription(nodeDef) }}</p>
           <div class="flex flex-col flex-1 min-h-0 gap-1">
             <label class="label shrink-0">{{ $t('logic.ports.object') }}</label>
             <input v-model="dpSearch" type="text" class="input text-sm shrink-0" :placeholder="$t('logic.nodeConfig.connection.searchPlaceholder')" @input="searchDps" />
@@ -172,7 +172,7 @@
     <!-- ── Trigger node: cron builder ──────────────────────────────────── -->
     <template v-else-if="isCronNode">
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        <p class="text-xs text-slate-500">{{ nodeDef?.description }}</p>
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
 
         <!-- Presets -->
         <div class="form-group">
@@ -240,7 +240,7 @@
     <!-- ── math_formula: Formel + Ausgangs-Transformation ──────────────── -->
     <template v-else-if="isMathFormulaNode">
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        <p class="text-xs text-slate-500">{{ nodeDef?.description }}</p>
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
 
         <!-- Hauptformel -->
         <div class="form-group">
@@ -285,7 +285,7 @@
     <!-- ── api_client: special rendering with conditional auth fields ──── -->
     <template v-else-if="isApiClientNode">
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        <p class="text-xs text-slate-500">{{ nodeDef?.description }}</p>
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
 
         <!-- Standard request fields -->
         <div class="form-group">
@@ -365,7 +365,7 @@
     <!-- ── string_concat ────────────────────────────────────────────────── -->
     <template v-else-if="isStringConcatNode">
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        <p class="text-xs text-slate-500">{{ nodeDef?.description }}</p>
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
 
         <!-- Count + Separator -->
         <div class="flex gap-3">
@@ -413,7 +413,7 @@
     <!-- ── json_extractor / xml_extractor ───────────────────────────────── -->
     <template v-else-if="isExtractorNode">
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        <p class="text-xs text-slate-500">{{ nodeDef?.description }}</p>
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
 
         <!-- Preview: last received raw data -->
         <div class="form-group">
@@ -586,7 +586,7 @@
     <!-- ── substring_extractor ──────────────────────────────────────────── -->
     <template v-else-if="isSubstringExtractorNode">
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        <p class="text-xs text-slate-500">{{ nodeDef?.description }}</p>
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
 
         <!-- Modus -->
         <div class="form-group">
@@ -693,7 +693,7 @@
     <!-- ── iCalendar ──────────────────────────────────────────────────────── -->
     <template v-else-if="isICalNode">
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-        <p class="text-xs text-slate-500">{{ nodeDef?.description }}</p>
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
 
         <!-- URL -->
         <div class="form-group">
