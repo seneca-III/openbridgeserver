@@ -13,7 +13,7 @@
          :style="{ borderTopColor: def.color, background: def.color + '12', minHeight: cardH + 'px' }">
 
       <div class="gn-header" :style="{ background: def.color + '28' }">
-        <span class="gn-title">{{ data.label || def.label }}</span>
+        <span class="gn-title">{{ def.label }}</span>
         <button class="gn-del nodrag" :style="{ visibility: hovered ? 'visible' : 'hidden' }" @click.stop="remove">✕</button>
       </div>
 
