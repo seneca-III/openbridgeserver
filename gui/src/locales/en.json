@@ -1303,7 +1303,11 @@
       "monthly": "Month",
       "yearly": "Year",
       "counter": "Counter",
-      "resultShort": "Res."
+      "resultShort": "Res.",
+      "icalArray": "Array",
+      "icalDate": "Date",
+      "icalTomorrow": "Tomorrow",
+      "icalToday": "Today"
     }
   },
   "settings": {

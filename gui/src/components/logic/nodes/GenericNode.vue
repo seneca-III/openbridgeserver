@@ -175,11 +175,15 @@ const def = computed(() => {
     const outputs = [{ id: 'raw', label: t('logic.ports.raw') }]
     for (let i = 0; i < filterCount; i++) {
       const fname = (Array.isArray(filters) && filters[i]?.name) ? filters[i].name : `F${i + 1}`
+      const lArr  = `${fname}: ${t('logic.portLabels.icalArray')}`
+      const lDate = `${fname}: ${t('logic.portLabels.icalDate')}`
+      const lTom  = `${fname}: ${t('logic.portLabels.icalTomorrow')}`
+      const lTod  = `${fname}: ${t('logic.portLabels.icalToday')}`
       outputs.push(
-        { id: `f${i}_array`,     label: `${fname}: Array`  },
-        { id: `f${i}_next_date`, label: `${fname}: Datum`  },
-        { id: `f${i}_tomorrow`,  label: `${fname}: Morgen` },
-        { id: `f${i}_today`,     label: `${fname}: Heute`  },
+        { id: `f${i}_array`,     label: lArr  },
+        { id: `f${i}_next_date`, label: lDate },
+        { id: `f${i}_tomorrow`,  label: lTom  },
+        { id: `f${i}_today`,     label: lTod  },
       )
     }
     return { ...base, label, outputs }
