@@ -206,7 +206,11 @@
       <div class="card p-5 flex flex-col gap-3">
         <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.importexport.importTitle') }}</h3>
         <p class="text-sm text-slate-400">{{ $t('settings.importexport.importDesc') }}</p>
-        <input type="file" accept=".json" @change="onImportFile" class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
+        <div class="flex items-center gap-3">
+          <button type="button" class="btn-secondary btn-sm" @click="importFileInput.click()">{{ $t('common.chooseFile') }}</button>
+          <span class="text-sm text-slate-400">{{ importFileName || $t('common.noFileSelected') }}</span>
+          <input ref="importFileInput" type="file" accept=".json" @change="onImportFile" class="hidden" />
+        </div>
         <div v-if="importResult" :class="['p-3 rounded-lg text-sm', importResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ importResult.text }}</div>
       </div>
 
@@ -230,7 +234,11 @@
             <li>{{ $t('settings.importexport.dbImportWarning4') }}</li>
           </ul>
         </div>
-        <input type="file" accept=".sqlite,.db" @change="onImportDbFile" class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
+        <div class="flex items-center gap-3">
+          <button type="button" class="btn-secondary btn-sm" @click="importDbFileInput.click()">{{ $t('common.chooseFile') }}</button>
+          <span class="text-sm text-slate-400">{{ importDbFileName || $t('common.noFileSelected') }}</span>
+          <input ref="importDbFileInput" type="file" accept=".sqlite,.db" @change="onImportDbFile" class="hidden" />
+        </div>
         <div v-if="importDbResult" :class="['p-3 rounded-lg text-sm', importDbResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ importDbResult.text }}</div>
       </div>
 
@@ -308,8 +316,11 @@
         </div>
         <p class="text-sm text-slate-400">{{ $t('settings.importexport.knxDesc') }}</p>
         <div class="flex flex-col gap-2">
-          <input type="file" accept=".knxproj" @change="onKnxprojFile"
-            class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
+          <div class="flex items-center gap-3">
+            <button type="button" class="btn-secondary btn-sm" @click="$refs.knxFileInput.click()">{{ $t('common.chooseFile') }}</button>
+            <span class="text-sm text-slate-400">{{ knxFile?.name || $t('common.noFileSelected') }}</span>
+            <input ref="knxFileInput" type="file" accept=".knxproj" @change="onKnxprojFile" class="hidden" />
+          </div>
           <div class="form-group">
             <label class="label">{{ $t('settings.importexport.knxPassword') }} <span class="text-slate-600 font-normal">{{ $t('common.optional') }}</span></label>
             <input v-model="knxPassword" type="password" class="input text-sm" :placeholder="$t('settings.importexport.knxPasswordPlaceholder')" autocomplete="off" />
@@ -1366,8 +1377,12 @@ async function doCreateKey() {
 async function deleteApiKey(id) { await authApi.deleteApiKey(id); await loadKeys() }
 
 // ── Sicherung / Wiederherstellung ──────────────────────────────────────────
-const importResult   = ref(null)
-const importDbResult = ref(null)
+const importResult    = ref(null)
+const importDbResult  = ref(null)
+const importFileName  = ref('')
+const importDbFileName = ref('')
+const importFileInput  = ref(null)
+const importDbFileInput = ref(null)
 
 function _ts() {
   const now = new Date()
@@ -1392,6 +1407,7 @@ async function doExportDb() {
 
 async function onImportFile(e) {
   const file = e.target.files[0]; if (!file) return
+  importFileName.value = file.name
   const text = await file.text()
   try {
     const payload = JSON.parse(text)
@@ -1411,6 +1427,7 @@ async function onImportFile(e) {
 
 async function onImportDbFile(e) {
   const file = e.target.files[0]; if (!file) return
+  importDbFileName.value = file.name
   importDbResult.value = null
   try {
     const { data } = await configApi.importDb(file)
