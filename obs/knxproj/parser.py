@@ -10,14 +10,19 @@ https://github.com/XKNX/xknxproject
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import logging
 import os
+import re
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from typing import Any
 from xml.etree import ElementTree
+
+import pyzipper
 
 logger = logging.getLogger(__name__)
 
@@ -243,9 +248,6 @@ def parse_knxproj_trades(file_bytes: bytes, password: str | None = None) -> list
                 logger.debug("parse_knxproj_trades: inner ZIP found but no password — skipping trades")
                 return records
 
-            import base64
-            import hashlib
-
             inner_zip_bytes = zf.read(inner_zips[0])
 
         # Determine ETS version from knx_master.xml to choose decryption method
@@ -255,15 +257,11 @@ def parse_knxproj_trades(file_bytes: bytes, password: str | None = None) -> list
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as outer:
                 if "knx_master.xml" in outer.namelist():
                     master = outer.read("knx_master.xml").decode("utf-8", errors="ignore")
-                    import re
-
                     m = re.search(r'xmlns="http://knx\.org/xml/project/(\d+)"', master)
                     if m:
                         schema_version = int(m.group(1))
         except Exception:
             pass
-
-        import pyzipper
 
         if schema_version < ets6_schema_version:
             # ETS5: standard ZIP password (UTF-8)

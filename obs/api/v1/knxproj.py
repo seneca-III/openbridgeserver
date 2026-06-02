@@ -299,8 +299,7 @@ async def import_knxproj_file(
         code = "INVALID_PASSWORD" if ("passwort" in msg.lower() or "verschl" in msg.lower()) else "PARSE_ERROR"
         logger.warning("Fehler beim Parsen der .knxproj-Datei", exc_info=True)
         detail = (
-            "Die .knxproj-Datei konnte nicht verarbeitet werden. "
-            "Bitte prüfe Datei und Passwort."
+            "Die .knxproj-Datei konnte nicht verarbeitet werden. Bitte prüfe Datei und Passwort."
             if code == "INVALID_PASSWORD"
             else "Die .knxproj-Datei konnte nicht verarbeitet werden."
         )
@@ -314,7 +313,7 @@ async def import_knxproj_file(
 
     if not records:
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={
                 "detail": (
                     "Keine Gruppenadressen gefunden. "
