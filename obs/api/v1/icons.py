@@ -797,7 +797,7 @@ async def import_knxuf(
     icons_dir = _icons_dir()
     icons_dir_resolved = icons_dir.resolve()
 
-    async with httpx.AsyncClient(timeout=30.0) as http:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as http:
         try:
             resp = await http.get(_KNXUF_URL)
             resp.raise_for_status()
