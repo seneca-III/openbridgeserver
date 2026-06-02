@@ -18,6 +18,7 @@
 * Visu: RTR Widget: Cilmate control (A/C) mode added for use with correct DPT 20.105 https://github.com/abeggled/openbridgeserver/issues/461
   
 ### Fixes 🐞
+* Backend Security (Upstream PR #PENDING): prevent Uvicorn access logs from being exposed through the in-memory log stream.
 * General: Proxmox LXC, confusing checksum field content within release notes. https://github.com/abeggled/openbridgeserver/issues/375
 * Backend: The adapter page automatically reloaded every few seconds, making configuration difficult. https://github.com/abeggled/openbridgeserver/issues/394
 * Logicmodule: The object selector now uses the entire available window space. https://github.com/abeggled/openbridgeserver/issues/345

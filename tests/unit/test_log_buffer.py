@@ -254,6 +254,30 @@ def test_install_attaches_to_non_propagating_uvicorn_error_logger_only():
     loop.close()
 
 
+def test_handler_ignores_propagating_uvicorn_access_records():
+    import asyncio
+
+    from obs.log_buffer import LogBufferHandler, get_log_buffer
+
+    access_logger = logging.getLogger("uvicorn.access")
+    old_access_propagate = access_logger.propagate
+    old_access_level = access_logger.level
+
+    access_logger.propagate = True
+    access_logger.setLevel(logging.INFO)
+
+    loop = asyncio.new_event_loop()
+    LogBufferHandler.install(loop, level=logging.INFO)
+
+    access_logger.info('127.0.0.1:1234 - "GET /api/v1/ws?token=secret HTTP/1.1" 101 Switching Protocols')
+
+    assert get_log_buffer() == []
+
+    access_logger.propagate = old_access_propagate
+    access_logger.setLevel(old_access_level)
+    loop.close()
+
+
 # ---------------------------------------------------------------------------
 # _broadcast_nowait without WS manager must not raise
 # ---------------------------------------------------------------------------
