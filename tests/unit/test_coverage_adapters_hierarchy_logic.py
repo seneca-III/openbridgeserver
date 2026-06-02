@@ -2421,8 +2421,8 @@ class TestLogicManagerHelpers:
     def test_is_private_host_loopback_literal(self):
         from obs.logic.manager import _is_private_host
 
-        # 127.0.0.1 is loopback — function returns False (loopback is allowed)
-        assert _is_private_host("127.0.0.1") is False
+        # 127.0.0.1 is loopback and must be blocked.
+        assert _is_private_host("127.0.0.1") is True
 
     def test_is_private_host_private_ip(self):
         from obs.logic.manager import _is_private_host
