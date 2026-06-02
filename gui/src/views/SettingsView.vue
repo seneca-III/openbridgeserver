@@ -1560,7 +1560,12 @@ async function doKnxImport() {
       params.direction    = knxDirection.value
     }
     const { data } = await knxprojApi.import(fd, params)
-    knxResult.value = { ok: true, text: data.message }
+    let msg = t('settings.importexport.knxImportResultOk', { n: data.imported })
+    if (data.created  > 0) msg += t('settings.importexport.knxImportResultCreated',   { n: data.created })
+    if (data.updated  > 0) msg += t('settings.importexport.knxImportResultUpdated',   { n: data.updated })
+    if (data.locations > 0) msg += t('settings.importexport.knxImportResultLocations', { n: data.locations })
+    if (data.trades   > 0) msg += t('settings.importexport.knxImportResultTrades',    { n: data.trades })
+    knxResult.value = { ok: true, text: msg }
     await loadKnxGaCount()
   } catch (err) {
     const resp = err.response?.data
