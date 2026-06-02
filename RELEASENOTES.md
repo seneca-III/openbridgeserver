@@ -46,7 +46,6 @@
 * Visu: Gauge mode for value display widget (arc/circle variants). https://github.com/abeggled/openbridgeserver/pull/421
 * Visu: Bar chart mode for history/chart widget. https://github.com/abeggled/openbridgeserver/pull/444
 * Visu: Widgets können per Drag & Drop aus der Palette direkt an eine bestimmte Position auf der Seite gezogen werden; eine blaue Vorschau zeigt die Zielposition. Klick auf ein Widget fügt es weiterhin automatisch an der ersten freien Position ein. Die Widget-Liste ist jetzt sprachspezifisch alphabetisch sortiert. https://github.com/abeggled/openbridgeserver/issues/667
-* Backend: KNX UF Iconset import — one-click import of all 940 KNX UF icons from ha-knx-uf-iconset directly into the icon library (prefix `kuf_`); re-import overwrites existing icons. https://github.com/abeggled/openbridgeserver/issues/677
 
 ### Fixes 🐞
 * Adapter: KNX IP Secure now works correctly in Docker bridge networks — credentials are extracted directly from the .knxkeys file and passed explicitly to xknx, bypassing the internal UDP DescriptionRequest that fails without host networking. Connection errors now include actionable hints (Docker network mode, gateway tunnel-slot exhaustion). https://github.com/abeggled/openbridgeserver/issues/393
@@ -57,7 +56,8 @@
 * Backend: The adapter page automatically reloaded every few seconds, making configuration difficult. https://github.com/abeggled/openbridgeserver/issues/394
 * Backend: Fix view permissions of Demo User https://github.com/abeggled/openbridgeserver/issues/471
 * Backend: History default window changed from 24h to 7d and is now configurable via `history.default_window_hours` (Settings → Historie DB). https://github.com/abeggled/openbridgeserver/pull/582
-* GUI: Fixed MQTT binding edit/create dialog becoming blank when switching to write direction; adapter-type resolution and i18n handling in BindingForm were hardened. https://github.com/abeggled/openbridgeserver/issues/656
+* Backend: KNX UF Iconset import — one-click import of all 940 KNX UF icons from ha-knx-uf-iconset directly into the icon library (prefix `kuf_`); re-import overwrites existing icons. https://github.com/abeggled/openbridgeserver/issues/677
+* Backend: Fixed MQTT binding edit/create dialog becoming blank when switching to write direction; adapter-type resolution and i18n handling in BindingForm were hardened. https://github.com/abeggled/openbridgeserver/issues/656
 * Visu: History (Chart) widget and Value Display widget time-range dropdowns now show translated labels instead of raw i18n key strings. https://github.com/abeggled/openbridgeserver/issues/662
 * General #375: Proxmox LXC, confusing checksum field content within release notes. https://github.com/abeggled/openbridgeserver/issues/375
 * Logic engine: The object selector now uses the entire available window space. https://github.com/abeggled/openbridgeserver/issues/345
