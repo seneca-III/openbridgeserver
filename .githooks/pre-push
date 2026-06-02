@@ -6,26 +6,28 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
 cd "$REPO_ROOT"
 
+if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
+  PYTHON="${VIRTUAL_ENV}/bin/python"
+elif [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+  PYTHON="$REPO_ROOT/.venv/bin/python"
+elif [[ -x "$REPO_ROOT/../openbridgeserver/.venv/bin/python" ]]; then
+  PYTHON="$REPO_ROOT/../openbridgeserver/.venv/bin/python"
+else
+  echo "pre-push gate: project venv not found" >&2
+  echo "Create or link a venv first:" >&2
+  echo "  python3 -m venv .venv" >&2
+  echo "  .venv/bin/python -m pip install -r requirements.txt -r requirements_dev.txt" >&2
+  exit 1
+fi
+
 echo "[pre-push] i18n hard gate"
 ./scripts/check-i18n-hardcoded-strings.sh
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "pre-push gate: python3 not found" >&2
-  exit 1
-fi
-
-if ! command -v pytest >/dev/null 2>&1; then
-  echo "pre-push gate: pytest not found" >&2
-  echo "Install development dependencies first:" >&2
-  echo "  pip install -r requirements.txt -r requirements_dev.txt" >&2
-  exit 1
-fi
-
 echo "[gate] ruff check"
-python3 -m ruff check .
+"$PYTHON" -m ruff check .
 
 echo "[gate] ruff format --check"
-python3 -m ruff format . --check
+"$PYTHON" -m ruff format . --check
 
 echo "[gate] pytest (CI parity)"
-pytest tests/ -v --cov=obs --cov-report=xml --cov-report=term --junitxml="${TMPDIR:-/tmp}/openbridge-pre-push-junit.xml"
+"$PYTHON" -m pytest tests/ -v --cov=obs --cov-report=xml --cov-report=term --junitxml="${TMPDIR:-/tmp}/openbridge-pre-push-junit.xml"
