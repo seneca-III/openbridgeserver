@@ -49,6 +49,7 @@
 
 ### Fixes 🐞
 * Logic Security (Upstream PR #686): API client secret-file paths are restricted to a configured secret directory with bounded regular-file reads.
+* GUI: Settings → History DB no longer opens as an empty tab when the TimescaleDB DSN placeholder is rendered; the `@` in the PostgreSQL example is escaped for vue-i18n. https://github.com/abeggled/openbridgeserver/issues/690
 * Adapter: KNX IP Secure now works correctly in Docker bridge networks — credentials are extracted directly from the .knxkeys file and passed explicitly to xknx, bypassing the internal UDP DescriptionRequest that fails without host networking. Connection errors now include actionable hints (Docker network mode, gateway tunnel-slot exhaustion). https://github.com/abeggled/openbridgeserver/issues/393
 * Backend: Complete remaining UI translation fixes after i18n rollout. https://github.com/abeggled/openbridgeserver/pull/542
 * Backend: Validate `DataValueEvent` payloads before bridge propagation. https://github.com/abeggled/openbridgeserver/pull/519

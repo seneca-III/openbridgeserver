@@ -1692,7 +1692,7 @@
       "organization": "Organisation",
       "bucket": "Bucket",
       "connectionDsn": "Connection DSN",
-      "connectionDsnPlaceholder": "postgresql://user:pass@localhost:5432/obs",
+      "connectionDsnPlaceholder": "postgresql://user:pass{'@'}localhost:5432/obs",
       "testButton": "Verbindung testen",
       "saveButton": "Speichern & aktivieren",
       "saved": "Historie DB gespeichert und aktiviert.",
