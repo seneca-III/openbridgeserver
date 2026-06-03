@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import aiosqlite
 import pytest
@@ -100,6 +102,58 @@ async def test_file_storage_recovers_malformed_database_during_record(tmp_path: 
         assert calls["count"] == 2
         assert [entry.new_value for entry in entries] == [1]
         assert list(tmp_path.glob("ringbuffer-malformed-record.db.corrupt-*"))
+    finally:
+        await rb.stop()
+
+
+async def test_handle_value_event_preserves_last_value_after_record_recovery(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "ringbuffer-event-recovery-last-value.db"
+    rb = RingBuffer(storage="file", max_entries=100, disk_path=str(db_path))
+    await rb.start()
+    try:
+
+        def _raise_runtime_error():
+            raise RuntimeError("registry unavailable")
+
+        monkeypatch.setattr("obs.core.registry.get_registry", _raise_runtime_error)
+
+        calls = {"count": 0}
+        original_record_locked = rb._record_locked  # noqa: SLF001
+
+        async def _raise_malformed_once(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise aiosqlite.OperationalError("database disk image is malformed")
+            return await original_record_locked(*args, **kwargs)
+
+        monkeypatch.setattr(rb, "_record_locked", _raise_malformed_once)
+        dp_id = "dp-event-recovery"
+
+        await rb.handle_value_event(
+            SimpleNamespace(
+                datapoint_id=dp_id,
+                ts=datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC),
+                value=10,
+                source_adapter="api",
+                quality="good",
+            )
+        )
+        await rb.handle_value_event(
+            SimpleNamespace(
+                datapoint_id=dp_id,
+                ts=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
+                value=11,
+                source_adapter="api",
+                quality="good",
+            )
+        )
+
+        entries = await rb.query(q=dp_id, limit=10)
+
+        assert calls["count"] == 3
+        assert [entry.new_value for entry in entries] == [11, 10]
+        assert entries[0].old_value == 10
+        assert list(tmp_path.glob("ringbuffer-event-recovery-last-value.db.corrupt-*"))
     finally:
         await rb.stop()
 

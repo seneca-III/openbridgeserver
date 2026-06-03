@@ -494,7 +494,6 @@ class RingBuffer:
 
         # Capture old value from our own tracking (reliable in asyncio)
         old_value = self._last_values.get(dp_id)
-        self._last_values[dp_id] = event.value
 
         try:
             from obs.core.registry import get_registry
@@ -520,6 +519,7 @@ class RingBuffer:
             metadata_version=1,
             metadata=metadata,
         )
+        self._last_values[dp_id] = event.value
 
     async def _build_metadata_snapshot(
         self,
