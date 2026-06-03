@@ -893,11 +893,7 @@ class RingBuffer:
             directory = os.path.dirname(path) or "."
             prefix = f"{os.path.basename(path)}.corrupt-"
             try:
-                candidates = [
-                    os.path.join(directory, name)
-                    for name in os.listdir(directory)
-                    if name.startswith(prefix)
-                ]
+                candidates = [os.path.join(directory, name) for name in os.listdir(directory) if name.startswith(prefix)]
             except FileNotFoundError:
                 continue
             stale = sorted(candidates, reverse=True)[_MAX_QUARANTINE_FILES_PER_STORAGE_FILE:]

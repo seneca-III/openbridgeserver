@@ -50,7 +50,7 @@
         @edit-set="onEditSet"
         @new-set="onNewSet"
         @changed="onTopbarChanged"
-        @export="showExportDialog = true"
+        @export="openExportDialog"
       >
         <template #time-filter-slot>
           <TimeFilterPopover v-model="timeFilter" @update:modelValue="onTimeFilterChanged" />
@@ -105,7 +105,7 @@
               :data-dp="e.datapoint_id"
               :class="getRowStyle(e.matched_set_ids) ? 'ringbuffer-row-matched' : null"
               :style="getRowStyle(e.matched_set_ids)"
-              :title="rowMatchTitle(e.matched_set_ids)"
+              :title="e.match_title"
             >
               <td class="font-mono text-xs text-slate-400 whitespace-nowrap">{{ fmtDateTime(e.ts) }}</td>
               <td class="text-sm">
@@ -160,7 +160,14 @@ function rowMatchTitle(matchedIds) {
     const set = topbarSetsRef.value.get(id)
     if (set?.name) names.push(set.name)
   }
-  return names.length ? `Match: ${names.join(', ')}` : null
+  return names.length ? t('ringbuffer.rowMatchTitle', { names: names.join(', ') }) : null
+}
+
+function withRowMatchTitle(entry) {
+  return {
+    ...entry,
+    match_title: rowMatchTitle(entry?.matched_set_ids),
+  }
 }
 
 const entries = ref([])
@@ -181,6 +188,10 @@ function onEditSet(id) {
 function onNewSet() {
   editorTargetId.value = null
   showFilterEditor.value = true
+}
+
+function openExportDialog() {
+  showExportDialog.value = true
 }
 
 async function onFilterEditorDeleted() {
@@ -234,7 +245,7 @@ const { paused, queuedCount, enqueue: enqueueLive, pause: pauseLive, resume: res
 
 function markAndEnqueueLive(entry) {
   liveIngressSeq += 1
-  enqueueLive(entry)
+  enqueueLive(withRowMatchTitle(entry))
 }
 
 function entryIdentity(entry) {
@@ -415,7 +426,7 @@ async function load() {
       const resp = await ringbufferApi.queryV2(buildQueryV2())
       data = resp.data
     }
-    const loadedEntries = Array.isArray(data) ? data : []
+    const loadedEntries = Array.isArray(data) ? data.map(withRowMatchTitle) : []
     const liveArrivedDuringLoad = liveIngressSeq !== liveSeqAtLoadStart
     entries.value = liveArrivedDuringLoad
       ? mergeEntriesKeepingLiveFirst(entries.value, loadedEntries)

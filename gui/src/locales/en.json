@@ -745,6 +745,7 @@
     "offlineTitle": "WebSocket offline",
     "queryFailed": "Monitor query failed",
     "recoveryNotice": "Monitor self-healing ran at {ts}. The previous monitor buffer was discarded; {n} corrupted file(s) were quarantined.",
+    "rowMatchTitle": "Match: {names}",
     "pause": "⏸ Pause",
     "resume": "▶ Resume",
     "statsTitle": "Ring Buffer Statistics",

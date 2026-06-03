@@ -128,6 +128,7 @@ async def test_memory_storage_does_not_attempt_corruption_recovery(monkeypatch):
     rb = RingBuffer(storage="memory", max_entries=100)
     await rb.start()
     try:
+
         async def _always_malformed(*args, **kwargs):
             raise aiosqlite.DatabaseError("database disk image is malformed")
 
