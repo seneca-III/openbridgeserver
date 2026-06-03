@@ -4,7 +4,7 @@ import Config from './Config.vue'
 
 WidgetRegistry.register({
   type: 'Stufenschalter',
-  label: 'Stufenschalter',
+  label: 'widgets.stufenschalter.title',
   icon: '📶',
   group: 'Steuerung',
   minW: 2, minH: 2,

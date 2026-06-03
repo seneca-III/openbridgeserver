@@ -8,7 +8,7 @@ interface ExtraDatapoint {
 
 WidgetRegistry.register({
   type: 'Info',
-  label: 'Info',
+  label: 'widgets.info.title',
   icon: 'ℹ️',
   group: 'Anzeige',
   minW: 2, minH: 2,

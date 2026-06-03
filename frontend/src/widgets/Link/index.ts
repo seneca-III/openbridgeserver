@@ -4,7 +4,7 @@ import Config from './Config.vue'
 
 WidgetRegistry.register({
   type: 'Link',
-  label: 'Link',
+  label: 'widgets.link.title',
   icon: '🔗',
   group: 'Medien & Sonstiges',
   minW: 2, minH: 2,
