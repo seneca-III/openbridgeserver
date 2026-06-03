@@ -690,6 +690,7 @@
       "color": "Colour",
       "name": "Name",
       "value": "Value",
+      "labelPlaceholder": "e.g. Fan speed",
       "defaultStepLabel": "Step {n}"
     },
     "text": {

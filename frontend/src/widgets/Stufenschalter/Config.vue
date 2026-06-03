@@ -23,17 +23,27 @@ const emit  = defineEmits<{ (e: 'update:modelValue', val: Record<string, unknown
 
 const { t } = useI18n()
 
+function defaultStepLabel(index: number): string {
+  return t('widgets.stufenschalter.defaultStepLabel', { n: index + 1 })
+}
+
+function normalizeStepLabel(raw: unknown, index: number): string {
+  if (typeof raw !== 'string') return defaultStepLabel(index)
+  if (raw === 'widgets.stufenschalter.defaultStepLabel') return defaultStepLabel(index)
+  return raw
+}
+
 function parseSteps(raw: unknown): Step[] {
   const arr = raw as Partial<Step>[] | undefined
   if (!Array.isArray(arr) || arr.length < MIN_STEPS) {
     return [
-      { label: t('widgets.stufenschalter.defaultStepLabel', { n: 1 }), value: '0', icon: '', color: '#6b7280' },
-      { label: t('widgets.stufenschalter.defaultStepLabel', { n: 2 }), value: '1', icon: '', color: '#3b82f6' },
-      { label: t('widgets.stufenschalter.defaultStepLabel', { n: 3 }), value: '2', icon: '', color: '#10b981' },
+      { label: defaultStepLabel(0), value: '0', icon: '', color: '#6b7280' },
+      { label: defaultStepLabel(1), value: '1', icon: '', color: '#3b82f6' },
+      { label: defaultStepLabel(2), value: '2', icon: '', color: '#10b981' },
     ]
   }
-  return arr.map((s) => ({
-    label: s.label ?? '',
+  return arr.map((s, index) => ({
+    label: normalizeStepLabel(s.label, index),
     value: String(s.value ?? ''),
     icon:  s.icon  ?? '',
     color: s.color ?? '#6b7280',
@@ -49,7 +59,7 @@ watch(cfg, () => emit('update:modelValue', { ...cfg, steps: [...cfg.steps] }), {
 
 function addStep() {
   if (cfg.steps.length >= MAX_STEPS) return
-  cfg.steps.push({ label: t('widgets.stufenschalter.defaultStepLabel', { n: cfg.steps.length + 1 }), value: String(cfg.steps.length), icon: '', color: '#6b7280' })
+  cfg.steps.push({ label: defaultStepLabel(cfg.steps.length), value: String(cfg.steps.length), icon: '', color: '#6b7280' })
 }
 
 function removeStep(i: number) {
@@ -77,7 +87,7 @@ function moveDown(i: number) {
       <input
         v-model="cfg.label"
         type="text"
-        placeholder="z.B. Lüfterstufe"
+        :placeholder="$t('widgets.stufenschalter.labelPlaceholder')"
         class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
@@ -142,7 +152,7 @@ function moveDown(i: number) {
               v-model="step.color"
               type="color"
               class="w-7 h-7 rounded cursor-pointer border border-gray-700 bg-transparent p-0.5 shrink-0"
-              title="Farbe"
+              :title="$t('widgets.stufenschalter.color')"
             />
           </div>
 

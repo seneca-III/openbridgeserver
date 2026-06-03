@@ -690,6 +690,7 @@
       "color": "Farbe",
       "name": "Name",
       "value": "Wert",
+      "labelPlaceholder": "z.B. Lüfterstufe",
       "defaultStepLabel": "Stufe {n}"
     },
     "text": {
