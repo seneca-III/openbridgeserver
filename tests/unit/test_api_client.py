@@ -14,7 +14,7 @@ import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from obs.logic.manager import LogicManager, _is_private_host, _read_secret_file
+from obs.logic.manager import LogicManager, _build_api_client_fetch_target, _is_private_host, _read_secret_file
 from obs.logic.models import FlowData
 from tests.unit.conftest import edge, make_executor, node
 
@@ -134,6 +134,42 @@ class TestApiClientSecretFileGuard:
         monkeypatch.setenv("OBS_SECRET_FILE_DIR", str(root))
 
         assert _read_secret_file(str(secret_file)) == ""
+
+
+class TestApiClientFetchTarget:
+    """Unit tests for DNS-pinned api_client fetch target construction."""
+
+    def test_rejects_invalid_url(self):
+        try:
+            _build_api_client_fetch_target("ftp://example.com/file")
+        except ValueError as exc:
+            assert str(exc) == "Invalid URL target"
+        else:  # pragma: no cover - defensive assertion
+            raise AssertionError("invalid URL target should be rejected")
+
+    def test_rejects_invalid_idna_hostname(self):
+        try:
+            _build_api_client_fetch_target("http://\udcff/")
+        except ValueError as exc:
+            assert str(exc) == "Invalid URL target"
+        else:  # pragma: no cover - defensive assertion
+            raise AssertionError("invalid hostname should be rejected")
+
+    def test_rejects_invalid_port(self):
+        try:
+            _build_api_client_fetch_target("http://example.com:bad/path")
+        except ValueError as exc:
+            assert str(exc) == "Invalid URL target"
+        else:  # pragma: no cover - defensive assertion
+            raise AssertionError("invalid port should be rejected")
+
+    @patch("obs.logic.manager._resolve_public_http_host", return_value=["2001:4860:4860::8888"])
+    def test_pins_ipv6_address_for_http_target(self, _mock_resolve):
+        pinned_url, headers, extensions = _build_api_client_fetch_target("http://example.com/path?q=1")
+
+        assert pinned_url == "http://[2001:4860:4860::8888]/path?q=1"
+        assert headers == {"Host": "example.com"}
+        assert extensions == {}
 
 
 # ===========================================================================
