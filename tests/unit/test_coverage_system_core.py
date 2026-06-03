@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from obs.security.url_targets import UrlTargetDecision
+
 # ===========================================================================
 # Helpers / stubs
 # ===========================================================================
@@ -27,6 +29,28 @@ class _Row(dict):
 
 def _row(**kwargs):
     return _Row(**kwargs)
+
+
+def _url_decision(
+    *,
+    allowed: bool,
+    url: str = "http://example.test/",
+    host: str = "example.test",
+    resolved_ips: list[str] | None = None,
+    blocked_ips: list[str] | None = None,
+    reason: str = "test decision",
+    allowlisted_by: str | None = None,
+) -> UrlTargetDecision:
+    return UrlTargetDecision(
+        allowed=allowed,
+        url=url,
+        host=host,
+        resolved_ips=resolved_ips or [],
+        blocked_ips=blocked_ips or [],
+        reason=reason,
+        allowlisted_by=allowlisted_by,
+        suggested_target=(blocked_ips or [None])[0],
+    )
 
 
 class _DbStub:
@@ -1781,17 +1805,14 @@ class TestGetDefaultHistoryWindowHours:
 class TestCheckSsrf:
     @pytest.mark.asyncio
     async def test_loopback_address_blocked(self, monkeypatch):
-        import socket
-
         from fastapi import HTTPException
 
         from obs.api.v1.weather import _check_ssrf
 
-        # Mock DNS resolution to return loopback
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=False, url=url, resolved_ips=["127.0.0.1"], blocked_ips=["127.0.0.1"]),
+        )
 
         with pytest.raises(HTTPException) as exc_info:
             await _check_ssrf("http://evil.example.com/test")
@@ -1799,34 +1820,30 @@ class TestCheckSsrf:
 
     @pytest.mark.asyncio
     async def test_public_address_allowed(self, monkeypatch):
-        import socket
-
         from obs.api.v1.weather import _check_ssrf
 
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=True, url=url, resolved_ips=["93.184.216.34"]),
+        )
 
         # Should not raise
         await _check_ssrf("http://example.com/weather")
 
     @pytest.mark.asyncio
     async def test_dns_failure_raises_502(self, monkeypatch):
-        import socket
-
         from fastapi import HTTPException
 
         from obs.api.v1.weather import _check_ssrf
 
-        async def fake_to_thread_raises(fn, *args):
-            raise socket.gaierror("Name not found")
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread_raises)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=False, url=url, reason="Hostname could not be resolved: Name not found"),
+        )
 
         with pytest.raises(HTTPException) as exc_info:
             await _check_ssrf("http://nonexistent-host-xyz.invalid/")
-        assert exc_info.value.status_code == 502
+        assert exc_info.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_no_hostname_raises_400(self):
@@ -1840,16 +1857,19 @@ class TestCheckSsrf:
 
     @pytest.mark.asyncio
     async def test_link_local_blocked(self, monkeypatch):
-        import socket
-
         from fastapi import HTTPException
 
         from obs.api.v1.weather import _check_ssrf
 
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(
+                allowed=False,
+                url=url,
+                resolved_ips=["169.254.169.254"],
+                blocked_ips=["169.254.169.254"],
+            ),
+        )
 
         with pytest.raises(HTTPException) as exc_info:
             await _check_ssrf("http://metadata.internal/latest")
@@ -1869,17 +1889,14 @@ class TestFetchWeather:
 
     @pytest.mark.asyncio
     async def test_successful_fetch_returns_json(self, monkeypatch):
-        import socket
-
         import httpx
 
         from obs.api.v1.weather import fetch_weather
 
-        # Mock SSRF check (public IP)
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=True, url=url, resolved_ips=["93.184.216.34"]),
+        )
 
         # Mock httpx response
         mock_response = MagicMock()
@@ -1904,17 +1921,15 @@ class TestFetchWeather:
 
     @pytest.mark.asyncio
     async def test_non_json_content_type_raises_502(self, monkeypatch):
-        import socket
-
         import httpx
         from fastapi import HTTPException
 
         from obs.api.v1.weather import fetch_weather
 
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=True, url=url, resolved_ips=["93.184.216.34"]),
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -1938,17 +1953,15 @@ class TestFetchWeather:
 
     @pytest.mark.asyncio
     async def test_upstream_401_raises_502(self, monkeypatch):
-        import socket
-
         import httpx
         from fastapi import HTTPException
 
         from obs.api.v1.weather import fetch_weather
 
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=True, url=url, resolved_ips=["93.184.216.34"]),
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 401
@@ -1971,17 +1984,15 @@ class TestFetchWeather:
 
     @pytest.mark.asyncio
     async def test_redirect_raises_400(self, monkeypatch):
-        import socket
-
         import httpx
         from fastapi import HTTPException
 
         from obs.api.v1.weather import fetch_weather
 
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=True, url=url, resolved_ips=["93.184.216.34"]),
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 301
@@ -2004,17 +2015,15 @@ class TestFetchWeather:
 
     @pytest.mark.asyncio
     async def test_request_error_raises_502(self, monkeypatch):
-        import socket
-
         import httpx
         from fastapi import HTTPException
 
         from obs.api.v1.weather import fetch_weather
 
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=True, url=url, resolved_ips=["93.184.216.34"]),
+        )
 
         class _FakeHttpxClient:
             async def __aenter__(self):
@@ -2034,17 +2043,15 @@ class TestFetchWeather:
 
     @pytest.mark.asyncio
     async def test_upstream_500_raises_502(self, monkeypatch):
-        import socket
-
         import httpx
         from fastapi import HTTPException
 
         from obs.api.v1.weather import fetch_weather
 
-        async def fake_to_thread(fn, *args):
-            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
-
-        monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
+        monkeypatch.setattr(
+            "obs.api.v1.weather.evaluate_url_target",
+            lambda url: _url_decision(allowed=True, url=url, resolved_ips=["93.184.216.34"]),
+        )
 
         mock_response = MagicMock()
         mock_response.status_code = 500

@@ -8,12 +8,13 @@ functions directly after patching their dependencies.
 from __future__ import annotations
 
 import json
-import socket
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+
+from obs.security.url_targets import UrlTargetDecision
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +45,28 @@ class _FakeCursor:
 def _make_row(**kwargs):
     """Return a dict-like object that also supports attribute and key access."""
     return SimpleNamespace(**kwargs) if False else _Row(kwargs)
+
+
+def _url_decision(
+    *,
+    allowed: bool,
+    url: str = "http://example.test/",
+    host: str = "example.test",
+    resolved_ips: list[str] | None = None,
+    blocked_ips: list[str] | None = None,
+    reason: str = "test decision",
+    allowlisted_by: str | None = None,
+) -> UrlTargetDecision:
+    return UrlTargetDecision(
+        allowed=allowed,
+        url=url,
+        host=host,
+        resolved_ips=resolved_ips or [],
+        blocked_ips=blocked_ips or [],
+        reason=reason,
+        allowlisted_by=allowlisted_by,
+        suggested_target=(blocked_ips or [None])[0],
+    )
 
 
 class _Row(dict):
@@ -377,7 +400,10 @@ class TestCheckSsrf:
 
     @pytest.mark.asyncio
     async def test_loopback_blocked(self):
-        with patch("obs.api.v1.camera.asyncio.to_thread", new=AsyncMock(return_value=[(None, None, None, None, ("127.0.0.1", 80))])):
+        with patch(
+            "obs.api.v1.camera.evaluate_url_target",
+            return_value=_url_decision(allowed=False, resolved_ips=["127.0.0.1"], blocked_ips=["127.0.0.1"]),
+        ):
             with pytest.raises(HTTPException) as exc:
                 await _check_ssrf("http://localhost/stream")
         assert exc.value.status_code == 400
@@ -386,8 +412,12 @@ class TestCheckSsrf:
     async def test_metadata_blocked(self):
         # 169.254.169.254 is the cloud metadata address
         with patch(
-            "obs.api.v1.camera.asyncio.to_thread",
-            new=AsyncMock(return_value=[(None, None, None, None, ("169.254.169.254", 80))]),
+            "obs.api.v1.camera.evaluate_url_target",
+            return_value=_url_decision(
+                allowed=False,
+                resolved_ips=["169.254.169.254"],
+                blocked_ips=["169.254.169.254"],
+            ),
         ):
             with pytest.raises(HTTPException) as exc:
                 await _check_ssrf("http://metadata.internal/")
@@ -395,26 +425,33 @@ class TestCheckSsrf:
 
     @pytest.mark.asyncio
     async def test_private_network_allowed(self):
-        # Private 192.168.x.x cameras should be allowed
+        # Private 192.168.x.x cameras are allowed only after an explicit allowlist decision.
         with patch(
-            "obs.api.v1.camera.asyncio.to_thread",
-            new=AsyncMock(return_value=[(None, None, None, None, ("192.168.1.100", 80))]),
+            "obs.api.v1.camera.evaluate_url_target",
+            return_value=_url_decision(
+                allowed=True,
+                resolved_ips=["192.168.1.100"],
+                allowlisted_by="192.168.1.100/32",
+            ),
         ):
             # Should not raise
             await _check_ssrf("http://192.168.1.100/stream")
 
     @pytest.mark.asyncio
     async def test_dns_failure_raises_502(self):
-        with patch("obs.api.v1.camera.asyncio.to_thread", side_effect=socket.gaierror("no address")):
+        with patch(
+            "obs.api.v1.camera.evaluate_url_target",
+            return_value=_url_decision(allowed=False, reason="Hostname could not be resolved: no address"),
+        ):
             with pytest.raises(HTTPException) as exc:
                 await _check_ssrf("http://nonexistent.local/stream")
-        assert exc.value.status_code == 502
+        assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_ipv6_loopback_blocked(self):
         with patch(
-            "obs.api.v1.camera.asyncio.to_thread",
-            new=AsyncMock(return_value=[(None, None, None, None, ("::1", 80, 0, 0))]),
+            "obs.api.v1.camera.evaluate_url_target",
+            return_value=_url_decision(allowed=False, resolved_ips=["::1"], blocked_ips=["::1"]),
         ):
             with pytest.raises(HTTPException) as exc:
                 await _check_ssrf("http://[::1]/stream")

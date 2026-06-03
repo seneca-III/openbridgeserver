@@ -15,14 +15,43 @@ import pytest
 
 from obs.api.v1.camera import _check_ssrf, _camera_auth
 from fastapi import HTTPException
+from obs.security.url_targets import UrlTargetDecision
+
+
+def _url_decision(
+    *,
+    allowed: bool,
+    url: str = "http://example.test/",
+    host: str = "example.test",
+    resolved_ips: list[str] | None = None,
+    blocked_ips: list[str] | None = None,
+    reason: str = "test decision",
+    allowlisted_by: str | None = None,
+) -> UrlTargetDecision:
+    return UrlTargetDecision(
+        allowed=allowed,
+        url=url,
+        host=host,
+        resolved_ips=resolved_ips or [],
+        blocked_ips=blocked_ips or [],
+        reason=reason,
+        allowlisted_by=allowlisted_by,
+        suggested_target=(blocked_ips or [None])[0],
+    )
 
 
 @pytest.mark.asyncio
 async def test_check_ssrf_blocks_metadata_ip(monkeypatch):
-    async def _fake_getaddrinfo(*a, **kw):
-        return [(None, None, None, None, ("169.254.169.254", 0))]
-
-    monkeypatch.setattr("obs.api.v1.camera.asyncio.to_thread", _fake_getaddrinfo)
+    monkeypatch.setattr(
+        "obs.api.v1.camera.evaluate_url_target",
+        lambda url: _url_decision(
+            allowed=False,
+            url=url,
+            host="metadata.internal",
+            resolved_ips=["169.254.169.254"],
+            blocked_ips=["169.254.169.254"],
+        ),
+    )
     with pytest.raises(HTTPException) as exc_info:
         await _check_ssrf("http://metadata.internal/secret")
     assert exc_info.value.status_code == 400
@@ -30,24 +59,33 @@ async def test_check_ssrf_blocks_metadata_ip(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_check_ssrf_allows_private_ip(monkeypatch):
-    async def _fake_getaddrinfo(*a, **kw):
-        return [(None, None, None, None, ("192.168.1.10", 0))]
-
-    monkeypatch.setattr("obs.api.v1.camera.asyncio.to_thread", _fake_getaddrinfo)
+    monkeypatch.setattr(
+        "obs.api.v1.camera.evaluate_url_target",
+        lambda url: _url_decision(
+            allowed=True,
+            url=url,
+            host="camera.local",
+            resolved_ips=["192.168.1.10"],
+            allowlisted_by="192.168.1.10/32",
+        ),
+    )
     await _check_ssrf("http://camera.local/stream")  # should not raise
 
 
 @pytest.mark.asyncio
 async def test_check_ssrf_dns_failure(monkeypatch):
-    import socket
-
-    async def _fake_getaddrinfo(*a, **kw):
-        raise socket.gaierror("Name or service not known")
-
-    monkeypatch.setattr("obs.api.v1.camera.asyncio.to_thread", _fake_getaddrinfo)
+    monkeypatch.setattr(
+        "obs.api.v1.camera.evaluate_url_target",
+        lambda url: _url_decision(
+            allowed=False,
+            url=url,
+            host="nonexistent.invalid",
+            reason="Hostname could not be resolved: Name or service not known",
+        ),
+    )
     with pytest.raises(HTTPException) as exc_info:
         await _check_ssrf("http://nonexistent.invalid/")
-    assert exc_info.value.status_code == 502
+    assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
