@@ -338,3 +338,37 @@ async def test_reconfigure_same_model_keeps_entries(tmp_path: Path):
         assert stats["max_age"] == 60
     finally:
         await rb.stop()
+
+
+async def test_reconfigure_same_model_recovers_malformed_file_storage(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "ringbuffer-same-model-recovery.db"
+    rb = RingBuffer(storage="file", max_entries=100, disk_path=str(db_path))
+    await rb.start()
+    try:
+        await _record_value(rb, 1, "2026-01-01T00:00:00.000Z")
+
+        calls = {"count": 0}
+        original_trim = rb._trim  # noqa: SLF001
+
+        async def _raise_malformed_once(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise aiosqlite.DatabaseError("database disk image is malformed")
+            return await original_trim(*args, **kwargs)
+
+        monkeypatch.setattr(rb, "_trim", _raise_malformed_once)
+
+        await rb.reconfigure("file", 50, max_file_size_bytes=1_000_000, max_age=60)
+        await _record_value(rb, 2, "2026-01-01T00:00:01.000Z")
+
+        entries = await rb.query(q="dp-storage-v2", limit=10)
+        stats = await rb.stats()
+
+        assert [entry.new_value for entry in entries] == [2]
+        assert stats["max_entries"] == 50
+        assert stats["max_file_size_bytes"] == 1_000_000
+        assert stats["max_age"] == 60
+        assert stats["last_recovery_at"]
+        assert list(tmp_path.glob("ringbuffer-same-model-recovery.db.corrupt-*"))
+    finally:
+        await rb.stop()

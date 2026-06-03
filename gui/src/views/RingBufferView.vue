@@ -179,6 +179,8 @@ const showExportDialog = ref(false)
 const editorTargetId = ref(null)
 const topbarChipsRef = ref(null)
 const recoveryNotice = ref('')
+let recoveryNoticeRefreshPromise = null
+let lastRecoveryNoticeRefreshAt = 0
 
 function onEditSet(id) {
   editorTargetId.value = id
@@ -331,6 +333,17 @@ async function loadRecoveryNotice() {
   }
 }
 
+function refreshRecoveryNoticeSoon() {
+  if (recoveryNotice.value) return
+  if (recoveryNoticeRefreshPromise) return
+  const now = Date.now()
+  if (lastRecoveryNoticeRefreshAt && now - lastRecoveryNoticeRefreshAt < 5000) return
+  lastRecoveryNoticeRefreshAt = now
+  recoveryNoticeRefreshPromise = loadRecoveryNotice().finally(() => {
+    recoveryNoticeRefreshPromise = null
+  })
+}
+
 function buildQueryV2() {
   const payload = {
     filters: {},
@@ -343,6 +356,8 @@ function buildQueryV2() {
 }
 
 function onLiveEntry(entry) {
+  refreshRecoveryNoticeSoon()
+
   // First gate: honor the active TimeFilterPopover. Entries outside the
   // resolved window are dropped — a fixed past window or a point ± span
   // window in the past therefore produces a static table, matching user

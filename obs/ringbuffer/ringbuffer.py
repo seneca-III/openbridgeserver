@@ -194,7 +194,12 @@ class RingBuffer:
                 self._max_entries = resolved_max_entries
                 self._max_file_size_bytes = int(resolved_max_file_size) if resolved_max_file_size is not None else None
                 self._max_age = int(resolved_max_age) if resolved_max_age is not None else None
-                await self._trim()
+                try:
+                    await self._trim()
+                except Exception as exc:
+                    if not self._can_recover_from(exc):
+                        raise
+                    await self._recover_corrupt_storage_locked(exc)
                 logger.info(
                     "RingBuffer reconfigured in-place → %s, max_entries=%s, max_file_size_bytes=%s, max_age=%s",
                     storage,
