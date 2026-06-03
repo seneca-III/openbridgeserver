@@ -2,7 +2,7 @@
 
 ## 2026.6.0
 ### Breaking changes 🚨
-* Security: Backend URL fetches from logic API-client nodes, the camera proxy, and the weather API now block private/local network targets by default unless they are explicitly allowlisted. Migration: existing installations using LAN cameras such as `http://192.168.x.x/...` or a local weather endpoint must allowlist the target under Settings → Security → URL Target Allowlist, or in the YAML file configured by `security.url_target_allowlist_path` (default: `/data/secrets/url-target-allowlist.yaml`, for example `192.168.1.23/32`). Until the target is allowlisted, affected camera widgets, weather widgets, or logic API-client calls are intentionally blocked. https://github.com/abeggled/openbridgeserver/pull/700
+* Security: Backend URL fetches from logic API-client nodes, the camera proxy, and the weather API now block private/local network targets by default unless they are explicitly allowlisted. Migration: existing installations using LAN cameras such as `http://192.168.x.x/...` or a local weather endpoint must allowlist the target under Settings → Security → URL Target Allowlist, or in the YAML file configured by `security.url_target_allowlist_path` (default: `/data/secrets/url-target-allowlist.yaml`). Use an IP address or CIDR for private targets, for example `192.168.1.23/32` or `10.38.113.0/24`. If a hostname such as `internal.example` resolves to a private IP address, allowlist the resolved IP/CIDR; a hostname-only entry does not override private-IP blocking while DNS resolves successfully. Until the target is allowlisted, affected camera widgets, weather widgets, or logic API-client calls are intentionally blocked. https://github.com/abeggled/openbridgeserver/pull/700
 
 ### New features ✨
 * Adapter: The KNX adapter now also supports TCP tunneling mode and Secure support via import of the .knxkeys file. https://github.com/abeggled/openbridgeserver/issues/14
@@ -103,7 +103,8 @@
 * Visu: Fixed-width Visu pages are now centered horizontally in the viewer. https://github.com/abeggled/openbridgeserver/pull/672
 
 ### Known Issues 🔔
-* none
+* Security: Camera proxy and weather API target validation still have a known DNS-rebinding TOCTOU limitation: the target is resolved and checked first, then `httpx` fetches the original URL and may resolve it again. This existed before PR #700 and is not a regression; DNS pinning similar to the iCal fetch path remains future hardening.
+* Security/UX: Hostname allowlist entries do not unblock private-network DNS results when DNS resolves successfully. For LAN cameras, local weather endpoints, or similar internal services, use an IP address or CIDR allowlist entry instead of only a hostname.
 
 ## 2026.5.2
 ### Breaking changes 🚨
