@@ -17,6 +17,8 @@ interface Cfg {
 
 const MIN_STEPS = 2
 const MAX_STEPS = 10
+const DEFAULT_OFF_LABEL = 'widgets.stufenschalter.defaultOffLabel'
+const DEFAULT_STEP_LABEL = 'widgets.stufenschalter.defaultStepLabel'
 
 const props = defineProps<{ modelValue: Record<string, unknown> }>()
 const emit  = defineEmits<{ (e: 'update:modelValue', val: Record<string, unknown>): void }>()
@@ -24,12 +26,21 @@ const emit  = defineEmits<{ (e: 'update:modelValue', val: Record<string, unknown
 const { t } = useI18n()
 
 function defaultStepLabel(index: number): string {
-  return t('widgets.stufenschalter.defaultStepLabel', { n: index + 1 })
+  if (index === 0) return t(DEFAULT_OFF_LABEL)
+  return t(DEFAULT_STEP_LABEL, { n: index })
 }
 
-function normalizeStepLabel(raw: unknown, index: number): string {
-  if (typeof raw !== 'string') return defaultStepLabel(index)
-  if (raw === 'widgets.stufenschalter.defaultStepLabel') return defaultStepLabel(index)
+function defaultStepLabelKey(index: number, value?: unknown): string {
+  return index === 0 && String(value ?? '') === '0' ? DEFAULT_OFF_LABEL : DEFAULT_STEP_LABEL
+}
+
+function normalizeStepLabel(raw: unknown, index: number, value?: unknown): string {
+  const defaultKey = defaultStepLabelKey(index, value)
+  if (typeof raw !== 'string') return defaultKey
+  const label = raw.trim()
+  if (!label || label === DEFAULT_STEP_LABEL || label === DEFAULT_OFF_LABEL || label === defaultStepLabel(index)) {
+    return defaultKey
+  }
   return raw
 }
 
@@ -37,13 +48,13 @@ function parseSteps(raw: unknown): Step[] {
   const arr = raw as Partial<Step>[] | undefined
   if (!Array.isArray(arr) || arr.length < MIN_STEPS) {
     return [
-      { label: defaultStepLabel(0), value: '0', icon: '', color: '#6b7280' },
-      { label: defaultStepLabel(1), value: '1', icon: '', color: '#3b82f6' },
-      { label: defaultStepLabel(2), value: '2', icon: '', color: '#10b981' },
+      { label: DEFAULT_OFF_LABEL, value: '0', icon: '', color: '#6b7280' },
+      { label: DEFAULT_STEP_LABEL, value: '1', icon: '', color: '#3b82f6' },
+      { label: DEFAULT_STEP_LABEL, value: '2', icon: '', color: '#10b981' },
     ]
   }
   return arr.map((s, index) => ({
-    label: normalizeStepLabel(s.label, index),
+    label: normalizeStepLabel(s.label, index, s.value),
     value: String(s.value ?? ''),
     icon:  s.icon  ?? '',
     color: s.color ?? '#6b7280',
@@ -55,11 +66,31 @@ const cfg = reactive<Cfg>({
   steps: parseSteps(props.modelValue.steps),
 })
 
-watch(cfg, () => emit('update:modelValue', { ...cfg, steps: [...cfg.steps] }), { deep: true })
+function serializedConfig(): Record<string, unknown> {
+  return {
+    ...cfg,
+    steps: cfg.steps.map((step, index) => ({
+      ...step,
+      label: normalizeStepLabel(step.label, index, step.value),
+    })),
+  }
+}
+
+watch(cfg, () => emit('update:modelValue', serializedConfig()), { deep: true })
+
+function displayStepLabel(step: Step, index: number): string {
+  const label = normalizeStepLabel(step.label, index, step.value)
+  return label === DEFAULT_OFF_LABEL || label === DEFAULT_STEP_LABEL ? defaultStepLabel(index) : step.label
+}
+
+function updateStepLabel(step: Step, index: number, event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  step.label = normalizeStepLabel(value, index, step.value)
+}
 
 function addStep() {
   if (cfg.steps.length >= MAX_STEPS) return
-  cfg.steps.push({ label: defaultStepLabel(cfg.steps.length), value: String(cfg.steps.length), icon: '', color: '#6b7280' })
+  cfg.steps.push({ label: DEFAULT_STEP_LABEL, value: String(cfg.steps.length), icon: '', color: '#6b7280' })
 }
 
 function removeStep(i: number) {
@@ -161,10 +192,11 @@ function moveDown(i: number) {
             <div class="flex-1">
               <label class="block text-xs text-gray-500 mb-0.5">{{ $t('widgets.stufenschalter.name') }}</label>
               <input
-                v-model="step.label"
+                :value="displayStepLabel(step, i)"
                 type="text"
-                :placeholder="$t('widgets.stufenschalter.defaultStepLabel', { n: i + 1 })"
+                :placeholder="defaultStepLabel(i)"
                 class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-blue-500"
+                @input="updateStepLabel(step, i, $event)"
               />
             </div>
             <div class="w-24">

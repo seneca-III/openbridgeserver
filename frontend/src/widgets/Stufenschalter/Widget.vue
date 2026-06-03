@@ -23,6 +23,8 @@ const props = defineProps<{
 
 const { getSvg, isSvgIcon, svgIconName } = useIcons()
 const { t } = useI18n()
+const DEFAULT_OFF_LABEL = 'widgets.stufenschalter.defaultOffLabel'
+const DEFAULT_STEP_LABEL = 'widgets.stufenschalter.defaultStepLabel'
 
 const label = computed(() => (props.config.label as string | undefined) ?? '')
 
@@ -35,10 +37,9 @@ function sanitizeColor(value: unknown, fallback = '#6b7280'): string {
 }
 
 function normalizeStepLabel(raw: unknown, index: number): string {
-  if (typeof raw !== 'string') return t('widgets.stufenschalter.defaultStepLabel', { n: index + 1 })
-  if (raw === 'widgets.stufenschalter.defaultStepLabel') {
-    return t('widgets.stufenschalter.defaultStepLabel', { n: index + 1 })
-  }
+  if (typeof raw !== 'string') return index === 0 ? t(DEFAULT_OFF_LABEL) : t(DEFAULT_STEP_LABEL, { n: index })
+  if (raw === DEFAULT_OFF_LABEL) return t(DEFAULT_OFF_LABEL)
+  if (raw === DEFAULT_STEP_LABEL) return index === 0 ? t(DEFAULT_OFF_LABEL) : t(DEFAULT_STEP_LABEL, { n: index })
   return raw
 }
 

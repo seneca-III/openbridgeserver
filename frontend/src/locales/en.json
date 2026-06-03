@@ -691,6 +691,7 @@
       "name": "Name",
       "value": "Value",
       "labelPlaceholder": "e.g. Fan speed",
+      "defaultOffLabel": "Off",
       "defaultStepLabel": "Step {n}"
     },
     "text": {

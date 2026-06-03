@@ -691,6 +691,7 @@
       "name": "Name",
       "value": "Wert",
       "labelPlaceholder": "z.B. Lüfterstufe",
+      "defaultOffLabel": "Aus",
       "defaultStepLabel": "Stufe {n}"
     },
     "text": {
