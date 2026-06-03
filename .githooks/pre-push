@@ -9,6 +9,8 @@ cd "$REPO_ROOT"
 
 if [ -d .venv ]; then
   export PATH="$REPO_ROOT/.venv/bin:$PATH"
+elif [ -d "$REPO_ROOT/../openbridgeserver/.venv" ]; then
+  export PATH="$(cd "$REPO_ROOT/../openbridgeserver" && pwd)/.venv/bin:$PATH"
 fi
 
 changed_files_for_push() {
