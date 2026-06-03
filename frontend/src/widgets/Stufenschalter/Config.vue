@@ -103,7 +103,7 @@ function moveDown(i: number) {
           :disabled="cfg.steps.length >= MAX_STEPS"
           class="text-xs px-2 py-1 rounded border border-dashed border-gray-600 text-gray-400 hover:border-blue-500 hover:text-blue-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           @click="addStep"
-        >+ Stufe</button>
+        >{{ $t('widgets.stufenschalter.addStep') }}</button>
       </div>
 
       <p class="text-xs text-gray-600 mb-2">
