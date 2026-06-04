@@ -2,7 +2,7 @@
 
 ## 2026.6.0
 ### Breaking changes 🚨
-* none
+* Security: Backend URL fetches from logic API-client nodes, iCalendar nodes, Pushover `image_url` attachments, the camera proxy, and the weather API now block private/local network targets by default unless they are explicitly allowlisted. Migration: existing installations using LAN cameras such as `http://192.168.x.x/...`, local `.ics` calendars, local Pushover image sources, or a local weather endpoint must allowlist the target under Settings → Security → URL Target Allowlist, or in the YAML file configured by `security.url_target_allowlist_path` (default: `OBS_SECRET_FILE_DIR/url-target-allowlist.yaml` when `OBS_SECRET_FILE_DIR` is set, otherwise `secrets/url-target-allowlist.yaml` next to the configured database). Use an IP address or CIDR for private targets, for example `192.168.1.23/32` or `10.38.113.0/24`. If a hostname such as `internal.example` resolves to a private IP address, allowlist the resolved IP/CIDR; a hostname-only entry does not override private-IP blocking and does not bypass DNS validation. Until the target is allowlisted, affected camera widgets, weather widgets, iCalendar nodes, Pushover image attachments, or logic API-client calls are intentionally blocked. https://github.com/abeggled/openbridgeserver/pull/700
 
 ### New features ✨
 * Adapter: The KNX adapter now also supports TCP tunneling mode and Secure support via import of the .knxkeys file. https://github.com/abeggled/openbridgeserver/issues/14
@@ -49,6 +49,7 @@
 * Visu: Widgets können per Drag & Drop aus der Palette direkt an eine bestimmte Position auf der Seite gezogen werden; eine blaue Vorschau zeigt die Zielposition. Klick auf ein Widget fügt es weiterhin automatisch an der ersten freien Position ein. Die Widget-Liste ist jetzt sprachspezifisch alphabetisch sortiert. https://github.com/abeggled/openbridgeserver/issues/667
 
 ### Fixes 🐞
+* Security: Logic API-client nodes, iCalendar nodes, Pushover image attachments, camera proxy requests, and weather API requests now share an admin-managed URL target allowlist for deliberate access to internal destinations while keeping SSRF protection active. https://github.com/abeggled/openbridgeserver/pull/700
 * Logic Security (Upstream PR #686): API client secret-file paths are restricted to a configured secret directory with bounded regular-file reads.
 * GUI: Settings → History DB no longer opens as an empty tab when the TimescaleDB DSN placeholder is rendered; the `@` in the PostgreSQL example is escaped for vue-i18n. https://github.com/abeggled/openbridgeserver/issues/690
 * Adapter: KNX IP Secure now works correctly in Docker bridge networks — credentials are extracted directly from the .knxkeys file and passed explicitly to xknx, bypassing the internal UDP DescriptionRequest that fails without host networking. Connection errors now include actionable hints (Docker network mode, gateway tunnel-slot exhaustion). https://github.com/abeggled/openbridgeserver/issues/393
@@ -106,7 +107,7 @@
 * Visu: Fixed-width Visu pages are now centered horizontally in the viewer. https://github.com/abeggled/openbridgeserver/pull/672
 
 ### Known Issues 🔔
-* none
+* Security/UX: Hostname allowlist entries do not authorize unresolved hosts and do not unblock private-network DNS results. For LAN cameras, local calendars, local Pushover image sources, local weather endpoints, or similar internal services, use an IP address or CIDR allowlist entry instead of only a hostname.
 
 ## 2026.5.2
 ### Breaking changes 🚨
