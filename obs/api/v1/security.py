@@ -75,7 +75,7 @@ async def create_url_target_allowlist_entry(
     admin: str = Depends(get_admin_user),
 ) -> UrlTargetAllowlistEntryOut:
     try:
-        entry = add_allowed_url_target(body.target, reason=body.reason, created_by=admin)
+        entry = await asyncio.to_thread(add_allowed_url_target, body.target, reason=body.reason, created_by=admin)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except OSError as exc:

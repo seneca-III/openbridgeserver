@@ -15,6 +15,7 @@ from obs.api.v1.security import (
 )
 from obs.config import SecuritySettings, Settings, override_settings
 from obs.security.url_targets import (
+    UrlTargetAllowEntry,
     UrlTargetAllowlistReadError,
     UrlTargetDecision,
     _match_allowlist,
@@ -619,6 +620,34 @@ async def test_security_api_check_runs_target_evaluation_off_event_loop(tmp_path
     )
     assert checked.allowed is True
     assert checked.resolved_ips == ["93.184.216.34"]
+
+
+@pytest.mark.asyncio
+async def test_security_api_create_runs_allowlist_write_off_event_loop(tmp_path):
+    override_settings(_settings_for(tmp_path / "allow.yaml"))
+
+    with patch("obs.api.v1.security.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+        mock_to_thread.return_value = UrlTargetAllowEntry(
+            id="unit",
+            target="10.38.113.23/32",
+            reason="unit",
+            created_by="admin",
+            created_at="2026-06-04T00:00:00+00:00",
+        )
+
+        created = await create_url_target_allowlist_entry(
+            UrlTargetAllowlistCreate(target="10.38.113.23/32", reason="unit"),
+            admin="admin",
+        )
+
+    mock_to_thread.assert_awaited_once_with(
+        add_allowed_url_target,
+        "10.38.113.23/32",
+        reason="unit",
+        created_by="admin",
+    )
+    assert created.target == "10.38.113.23/32"
+    assert created.created_by == "admin"
 
 
 @pytest.mark.asyncio
