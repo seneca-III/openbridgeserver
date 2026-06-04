@@ -114,6 +114,30 @@ async function mountSettingsView() {
 
 describe('SettingsView security tab', () => {
   it('checks a private URL target and allows the suggested CIDR entry', async () => {
+    checkUrlTarget
+      .mockResolvedValueOnce({
+        data: {
+          allowed: false,
+          url: 'http://internal.example/api/v1/status',
+          host: 'internal.example',
+          resolved_ips: ['10.38.113.23'],
+          blocked_ips: ['10.38.113.23'],
+          reason: 'URL target resolves to an internal address',
+          suggested_target: '10.38.113.23/32',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          allowed: true,
+          url: 'http://internal.example/api/v1/status',
+          host: 'internal.example',
+          resolved_ips: ['10.38.113.23'],
+          blocked_ips: [],
+          reason: 'URL target is allowed',
+          allowlisted_by: '10.38.113.23/32',
+        },
+      })
+
     const wrapper = await mountSettingsView()
     const securityTab = wrapper.findAll('button').find(button => button.text() === 'Sicherheit')
     expect(securityTab).toBeTruthy()
@@ -123,11 +147,11 @@ describe('SettingsView security tab', () => {
     expect(listUrlTargets).toHaveBeenCalled()
     expect(wrapper.text()).toContain('/data/secrets/url-target-allowlist.yaml')
 
-    await wrapper.find('[data-testid="security-url-target-check-input"]').setValue('10.38.113.23/api/v1/status')
+    await wrapper.find('[data-testid="security-url-target-check-input"]').setValue('internal.example/api/v1/status')
     await wrapper.find('[data-testid="security-url-target-check"]').trigger('click')
     await flushPromises()
 
-    expect(checkUrlTarget).toHaveBeenCalledWith({ url: 'http://10.38.113.23/api/v1/status' })
+    expect(checkUrlTarget).toHaveBeenCalledWith({ url: 'http://internal.example/api/v1/status' })
     expect(wrapper.text()).toContain('Ziel blockiert')
     expect(wrapper.text()).toContain('10.38.113.23/32')
 
@@ -138,6 +162,8 @@ describe('SettingsView security tab', () => {
       target: '10.38.113.23/32',
       reason: 'Freigabe nach URL-Zielprüfung',
     })
+    expect(checkUrlTarget).toHaveBeenLastCalledWith({ url: 'http://internal.example/api/v1/status' })
+    expect(wrapper.text()).toContain('Ziel erlaubt')
     wrapper.unmount()
   })
 })

@@ -32,7 +32,7 @@ async function mountApiClientPanel() {
       node: {
         id: 'ac',
         type: 'api_client',
-        data: { url: 'http://10.38.113.23/api/v1/status', auth_type: 'none' },
+        data: { url: 'http://internal.example/api/v1/status', auth_type: 'none' },
       },
       nodeTypes: [{ type: 'api_client', label: 'API Client', description: 'HTTP client' }],
       nodeOutputs: {},
@@ -48,8 +48,8 @@ describe('NodeConfigPanel api_client URL target policy', () => {
       .mockResolvedValueOnce({
         data: {
           allowed: false,
-          url: 'http://10.38.113.23/api/v1/status',
-          host: '10.38.113.23',
+          url: 'http://internal.example/api/v1/status',
+          host: 'internal.example',
           resolved_ips: ['10.38.113.23'],
           blocked_ips: ['10.38.113.23'],
           reason: 'URL target resolves to an internal address',
@@ -59,8 +59,8 @@ describe('NodeConfigPanel api_client URL target policy', () => {
       .mockResolvedValueOnce({
         data: {
           allowed: true,
-          url: 'http://10.38.113.23/api/v1/status',
-          host: '10.38.113.23',
+          url: 'http://internal.example/api/v1/status',
+          host: 'internal.example',
           resolved_ips: ['10.38.113.23'],
           blocked_ips: [],
           reason: 'URL target is allowed',
@@ -73,7 +73,7 @@ describe('NodeConfigPanel api_client URL target policy', () => {
     await flushPromises()
 
     expect(checkUrlTarget).toHaveBeenCalledWith({
-      url: 'http://10.38.113.23/api/v1/status',
+      url: 'http://internal.example/api/v1/status',
     })
     expect(wrapper.text()).toContain('Dieses Ziel wird blockiert')
     expect(wrapper.text()).toContain('10.38.113.23/32')
@@ -84,6 +84,9 @@ describe('NodeConfigPanel api_client URL target policy', () => {
     expect(addUrlTarget).toHaveBeenCalledWith({
       target: '10.38.113.23/32',
       reason: 'Freigabe aus API-Client-Konfiguration',
+    })
+    expect(checkUrlTarget).toHaveBeenLastCalledWith({
+      url: 'http://internal.example/api/v1/status',
     })
     expect(wrapper.text()).toContain('Ziel ist erlaubt')
     wrapper.unmount()

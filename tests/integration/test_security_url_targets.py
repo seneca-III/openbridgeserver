@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 
 async def test_url_target_allowlist_admin_flow(client, auth_headers):
     blocked = await client.post(
@@ -39,3 +41,37 @@ async def test_url_target_allowlist_admin_flow(client, auth_headers):
     )
     assert deleted.status_code == 200
     assert deleted.json()["deleted"] is True
+
+
+async def test_url_target_allowlist_fqdn_suggested_ip_flow(client, auth_headers):
+    with patch("obs.security.url_targets.socket.getaddrinfo", return_value=[(None, None, None, None, ("10.38.113.23", 0))]):
+        blocked = await client.post(
+            "/api/v1/security/url-target-check",
+            json={"url": "http://internal.example/api/v1/status"},
+            headers=auth_headers,
+        )
+        assert blocked.status_code == 200
+        blocked_body = blocked.json()
+        assert blocked_body["allowed"] is False
+        assert blocked_body["host"] == "internal.example"
+        assert blocked_body["blocked_ips"] == ["10.38.113.23"]
+        assert blocked_body["suggested_target"] == "10.38.113.23/32"
+
+        created = await client.post(
+            "/api/v1/security/url-target-allowlist",
+            json={"target": blocked_body["suggested_target"], "reason": "fqdn integration test"},
+            headers=auth_headers,
+        )
+        assert created.status_code == 200
+        assert created.json()["target"] == "10.38.113.23/32"
+
+        allowed = await client.post(
+            "/api/v1/security/url-target-check",
+            json={"url": "http://internal.example/api/v1/status"},
+            headers=auth_headers,
+        )
+        assert allowed.status_code == 200
+        allowed_body = allowed.json()
+        assert allowed_body["allowed"] is True
+        assert allowed_body["host"] == "internal.example"
+        assert allowed_body["allowlisted_by"] == "10.38.113.23/32"
