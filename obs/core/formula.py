@@ -136,7 +136,15 @@ def apply_formula(formula: str, value: Any) -> Any:
     if not formula:
         return value
     try:
-        x = float(value)
+        # Preserve Python int for integer inputs so that large Counter64 values
+        # (> 2^53) are not truncated by float conversion before the formula runs.
+        # Python arithmetic (int / float) is exact up to the result's magnitude.
+        if isinstance(value, bool):
+            x: int | float = float(value)
+        elif isinstance(value, int):
+            x = value
+        else:
+            x = float(value)
     except (TypeError, ValueError):
         return value  # Nicht-numerisch → unverändert
 

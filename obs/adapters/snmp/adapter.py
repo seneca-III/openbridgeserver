@@ -372,13 +372,6 @@ class SnmpAdapter(AdapterBase):
                 if binding.value_formula:
                     from obs.core.formula import apply_formula
 
-                    # NOTE: apply_formula converts the value to float internally.
-                    # For large Counter64 values (> 10^12) combined with a divisor
-                    # (e.g. "x / 1000000000.0"), the resulting float may lose enough
-                    # precision that consecutive poll values appear identical to the
-                    # change-detection in DataPointState.update(). If polling appears
-                    # to stop after the first update, try storing the raw counter
-                    # value (value_formula="x") and applying the conversion elsewhere.
                     value = apply_formula(binding.value_formula, value)
                 if binding.value_map:
                     from obs.core.transformation import apply_value_map
