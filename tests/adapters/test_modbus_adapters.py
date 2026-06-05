@@ -1635,6 +1635,26 @@ class TestReloadPublishesStatus:
         disconnected_events = [e for e in status_events if not e.connected]
         assert disconnected_events, "No connected=False status published after reload reconnect failure"
 
+    async def test_reload_publishes_disconnected_when_connect_returns_but_stays_false(self):
+        """connect() returns without raising but client.connected stays False (silent fail).
+
+        P2 review: the else-branch must publish disconnected so a DEST-only instance
+        does not continue to report connected while writes are silently skipped.
+        """
+        adapter, bus = _make_tcp()
+        client = _make_client(connected=False)
+        client.connect = AsyncMock()  # no exception — silent failure
+        adapter._client = client
+        adapter._bindings = []
+
+        await adapter._on_bindings_reloaded()
+
+        status_events = [c.args[0] for c in bus.publish.call_args_list if hasattr(c.args[0], "connected")]
+        disconnected_events = [e for e in status_events if not e.connected]
+        assert disconnected_events, (
+            "No connected=False status published when connect() returned but client stayed disconnected"
+        )
+
 
 class TestReconnectBackoff:
     """_reconnect_ok_after prevents N bindings from each firing a separate
