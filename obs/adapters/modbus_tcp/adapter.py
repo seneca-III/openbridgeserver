@@ -55,23 +55,14 @@ class ModbusTcpAdapterConfig(BaseModel):
     serialize_reads: bool = Field(
         default=True,
         title="Reads serialisieren",
-        description=(
-            "Sendet Modbus-Requests nacheinander statt gleichzeitig. "
-            "Empfohlen fuer einfache Geraete (Heizungsregler, Wechselrichter, Zaehler), "
-            "die nur einen Request gleichzeitig verarbeiten koennen. "
-            "Deaktivieren bei leistungsstarken PLCs mit Multi-Request-Unterstuetzung."
-        ),
+        description="Sendet Modbus-Requests nacheinander statt gleichzeitig. Empfohlen fuer einfache Geraete (Heizungsregler, Wechselrichter, Zaehler), die nur einen Request gleichzeitig verarbeiten koennen. Deaktivieren bei leistungsstarken PLCs mit Multi-Request-Unterstuetzung.",
     )
     startup_jitter_s: float = Field(
         default=30.0,
         ge=0.0,
         le=300.0,
         title="Startup-Jitter (s)",
-        description=(
-            "Maximale zufaellige Verzoegerung (Sekunden) vor dem ersten Poll jedes Bindings. "
-            "Verhindert einen Request-Burst wenn alle Tasks gleichzeitig starten. "
-            "0 = deaktiviert."
-        ),
+        description="Maximale zufaellige Verzoegerung (Sekunden) vor dem ersten Poll jedes Bindings. Verhindert einen Request-Burst wenn alle Tasks gleichzeitig starten. 0 = deaktiviert.",
     )
 
 
