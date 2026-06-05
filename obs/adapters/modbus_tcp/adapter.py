@@ -175,6 +175,8 @@ class ModbusTcpAdapter(AdapterBase):
             if self._stopping:
                 return
 
+            needs_clean_session = self._initial_load_done or bool(self._poll_tasks) or self._inflight_io > 0
+
             # Cancel existing pollers and wait for them to actually finish.
             # Without awaiting gather(), old tasks may still be executing a Modbus read
             # concurrently with the new tasks, which corrupts the shared TCP connection.
@@ -184,8 +186,9 @@ class ModbusTcpAdapter(AdapterBase):
                 await asyncio.gather(*self._poll_tasks, return_exceptions=True)
             self._poll_tasks.clear()
 
-            # Close and reconnect only after any in-flight Modbus I/O has drained.
-            if self._client:
+            # Close and reconnect only for real reloads; the initial binding load
+            # follows connect() and should not create a second TCP session.
+            if needs_clean_session and self._client:
                 async with self._client_lifecycle():
                     try:
                         self._client.close()
@@ -251,74 +254,59 @@ class ModbusTcpAdapter(AdapterBase):
             # shared backoff so N bindings do not each fire a separate connect()
             # timeout when the device is offline (avoids N × timeout seconds blocked).
             if self._client and not self._client.connected:
+                reconnect_failed = False
                 async with self._reconnect_lock:
-                    if not self._client.connected:
+                    if self._client and not self._client.connected:
                         if time.monotonic() < self._reconnect_ok_after:
                             # Backoff active — skip this attempt, publish bad quality.
                             await self._publish_disconnected_if_needed("Modbus TCP reconnect backoff active")
-                            await self._bus.publish(
-                                DataValueEvent(
-                                    datapoint_id=binding.datapoint_id,
-                                    value=None,
-                                    quality="bad",
-                                    source_adapter=self.adapter_type,
-                                    binding_id=binding.id,
-                                ),
-                            )
-                            await asyncio.sleep(bc.poll_interval)
-                            continue
-                        try:
-                            async with self._client_lifecycle():
-                                await self._client.connect()
-                            if self._client.connected:
-                                self._reconnect_ok_after = 0.0  # clear backoff on success
-                                host = self._adp_cfg.host
-                                port = self._adp_cfg.port
-                                await self._publish_status(True, f"{host}:{port}")
-                                logger.info(
-                                    "Modbus TCP: reconnected in poll loop (binding %s)",
-                                    binding.id,
-                                )
-                            else:
-                                # connect() returned without error but socket still down.
+                            reconnect_failed = True
+                        else:
+                            try:
+                                async with self._client_lifecycle():
+                                    await self._client.connect()
+                                if self._client.connected:
+                                    self._reconnect_ok_after = 0.0  # clear backoff on success
+                                    host = self._adp_cfg.host
+                                    port = self._adp_cfg.port
+                                    await self._publish_status(True, f"{host}:{port}")
+                                    logger.info(
+                                        "Modbus TCP: reconnected in poll loop (binding %s)",
+                                        binding.id,
+                                    )
+                                else:
+                                    # connect() returned without error but socket still down.
+                                    self._reconnect_ok_after = time.monotonic() + self._reconnect_backoff_delay(
+                                        bc.poll_interval,
+                                    )
+                                    await self._publish_disconnected_if_needed(
+                                        f"Could not reconnect to {self._adp_cfg.host}:{self._adp_cfg.port}",
+                                    )
+                                    logger.warning(
+                                        "Modbus TCP: connect() succeeded but client still disconnected (binding %s)",
+                                        binding.id,
+                                    )
+                                    reconnect_failed = True
+                            except Exception as exc:
                                 self._reconnect_ok_after = time.monotonic() + self._reconnect_backoff_delay(
                                     bc.poll_interval,
                                 )
-                                await self._publish_disconnected_if_needed(
-                                    f"Could not reconnect to {self._adp_cfg.host}:{self._adp_cfg.port}",
-                                )
-                                logger.warning(
-                                    "Modbus TCP: connect() succeeded but client still disconnected (binding %s)",
-                                    binding.id,
-                                )
-                                await self._bus.publish(
-                                    DataValueEvent(
-                                        datapoint_id=binding.datapoint_id,
-                                        value=None,
-                                        quality="bad",
-                                        source_adapter=self.adapter_type,
-                                        binding_id=binding.id,
-                                    ),
-                                )
-                                await asyncio.sleep(bc.poll_interval)
-                                continue
-                        except Exception as exc:
-                            self._reconnect_ok_after = time.monotonic() + self._reconnect_backoff_delay(
-                                bc.poll_interval,
-                            )
-                            await self._publish_disconnected_if_needed(str(exc))
-                            logger.warning("Modbus TCP: reconnect failed (binding %s): %s", binding.id, exc)
-                            await self._bus.publish(
-                                DataValueEvent(
-                                    datapoint_id=binding.datapoint_id,
-                                    value=None,
-                                    quality="bad",
-                                    source_adapter=self.adapter_type,
-                                    binding_id=binding.id,
-                                ),
-                            )
-                            await asyncio.sleep(bc.poll_interval)
-                            continue
+                                await self._publish_disconnected_if_needed(str(exc))
+                                logger.warning("Modbus TCP: reconnect failed (binding %s): %s", binding.id, exc)
+                                reconnect_failed = True
+
+                if reconnect_failed:
+                    await self._bus.publish(
+                        DataValueEvent(
+                            datapoint_id=binding.datapoint_id,
+                            value=None,
+                            quality="bad",
+                            source_adapter=self.adapter_type,
+                            binding_id=binding.id,
+                        ),
+                    )
+                    await asyncio.sleep(bc.poll_interval)
+                    continue
 
             # Read → transform → publish
             try:

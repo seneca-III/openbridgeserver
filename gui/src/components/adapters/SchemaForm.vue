@@ -2,18 +2,21 @@
   <div class="flex flex-col gap-4">
     <template v-for="(prop, key) in schema.properties" :key="key">
       <!-- Boolean: checkbox + inline label -->
-      <div v-if="!exclude.includes(key) && resolvedType(prop) === 'boolean'" class="flex items-center gap-2">
-        <input
-          type="checkbox"
-          :id="`sf-${key}`"
-          :checked="local[key]"
-          class="w-4 h-4 rounded"
-          :data-testid="`config-field-${key}`"
-          @change="setBool(key, $event.target.checked)"
-        />
-        <label :for="`sf-${key}`" class="text-sm text-slate-600 dark:text-slate-300">
-          {{ fieldLabel(key, prop) }}
-        </label>
+      <div v-if="!exclude.includes(key) && resolvedType(prop) === 'boolean'" class="form-group">
+        <div class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            :id="`sf-${key}`"
+            :checked="local[key]"
+            class="w-4 h-4 rounded"
+            :data-testid="`config-field-${key}`"
+            @change="setBool(key, $event.target.checked)"
+          />
+          <label :for="`sf-${key}`" class="text-sm text-slate-600 dark:text-slate-300">
+            {{ fieldLabel(key, prop) }}
+          </label>
+        </div>
+        <p v-if="fieldDescription(key, prop)" class="text-xs text-slate-400 mt-1">{{ fieldDescription(key, prop) }}</p>
       </div>
 
       <!-- All other types: label on top -->

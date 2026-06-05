@@ -1017,6 +1017,7 @@ class TestBindingsReloadedAwaitAndReconnect:
         new_client = _make_client(connected=True)
         adapter._client = client
         _install_client_factory(adapter, new_client)
+        adapter._initial_load_done = True
         adapter._bindings = []
 
         await adapter._on_bindings_reloaded()
@@ -1035,6 +1036,7 @@ class TestBindingsReloadedAwaitAndReconnect:
         new_client = _make_client(connected=True)
         adapter._client = client
         _install_client_factory(adapter, new_client)
+        adapter._initial_load_done = True
         adapter._bindings = []
 
         await adapter._on_bindings_reloaded()
@@ -1052,6 +1054,7 @@ class TestBindingsReloadedAwaitAndReconnect:
         new_client.connect = AsyncMock(side_effect=OSError("connection refused"))
         adapter._client = client
         _install_client_factory(adapter, new_client)
+        adapter._initial_load_done = True
 
         binding = make_binding(_HOLDING_CFG, direction="SOURCE")
         adapter._bindings = [binding]
@@ -1071,6 +1074,32 @@ class TestBindingsReloadedAwaitAndReconnect:
         adapter._bindings = []
 
         await adapter._on_bindings_reloaded()
+
+    async def test_initial_binding_load_uses_existing_connection(self):
+        """The first registry binding load follows connect() and must not reconnect.
+
+        connect() already opened the TCP client before the registry calls
+        reload_bindings(). Reconnecting here creates a second initial TCP session
+        before any old poller or in-flight Modbus call exists.
+        """
+        adapter, _ = _make_tcp()
+        client = _make_client(connected=True)
+        new_client = _make_client(connected=True)
+        adapter._client = client
+        _install_client_factory(adapter, new_client)
+        adapter._bindings = [make_binding(_HOLDING_CFG, direction="SOURCE")]
+
+        with patch.object(adapter, "_poll_loop", new=AsyncMock()):
+            await adapter._on_bindings_reloaded()
+
+        client.close.assert_not_called()
+        adapter._client_factory.assert_not_called()
+        assert adapter._client is client
+        assert adapter._initial_load_done
+        assert len(adapter._poll_tasks) == 1
+
+        for t in adapter._poll_tasks:
+            t.cancel()
 
 
 # ---------------------------------------------------------------------------
@@ -1593,6 +1622,7 @@ class TestReloadLock:
         adapter, _ = _make_tcp()
         adapter._client = _make_client()
         _install_client_factory(adapter, _make_client(), _make_client())
+        adapter._initial_load_done = True
         adapter._bindings = []
 
         reload_order = []
@@ -1785,6 +1815,7 @@ class TestReloadPublishesStatus:
         new_client = _make_client(connected=True)
         adapter._client = client
         _install_client_factory(adapter, new_client)
+        adapter._initial_load_done = True
         adapter._bindings = []
 
         await adapter._on_bindings_reloaded()
@@ -1801,6 +1832,7 @@ class TestReloadPublishesStatus:
         _install_client_factory(adapter, new_client)
         adapter._bindings = []
         adapter._reconnect_ok_after = 999999.0
+        adapter._initial_load_done = True
 
         await adapter._on_bindings_reloaded()
 
@@ -1813,6 +1845,7 @@ class TestReloadPublishesStatus:
         new_client.connect = AsyncMock(side_effect=OSError("refused"))
         adapter._client = client
         _install_client_factory(adapter, new_client)
+        adapter._initial_load_done = True
         adapter._bindings = []
 
         await adapter._on_bindings_reloaded()
@@ -1833,6 +1866,7 @@ class TestReloadPublishesStatus:
         new_client.connect = AsyncMock()  # no exception — silent failure
         adapter._client = client
         _install_client_factory(adapter, new_client)
+        adapter._initial_load_done = True
         adapter._bindings = []
 
         await adapter._on_bindings_reloaded()
@@ -1880,6 +1914,41 @@ class TestReconnectBackoff:
 
         assert connect_calls == 1, (
             f"Expected 1 connect() call due to backoff, got {connect_calls}. Without backoff, every binding fires its own timeout."
+        )
+
+    async def test_failed_reconnect_releases_lock_before_sleeping(self):
+        """All bindings should observe backoff immediately, not wait behind sleep()."""
+        adapter, bus = _make_tcp()
+        connect_calls = 0
+
+        async def failing_connect():
+            nonlocal connect_calls
+            connect_calls += 1
+
+        client = _make_client(connected=False)
+        client.connect = AsyncMock(side_effect=failing_connect)
+        adapter._client = client
+
+        long_interval_cfg = {**_HOLDING_CFG, "poll_interval": 10.0}
+        binding1 = make_binding(long_interval_cfg, direction="SOURCE")
+        binding2 = make_binding(long_interval_cfg, direction="SOURCE")
+
+        t1 = asyncio.create_task(adapter._poll_loop(binding1, apply_jitter=False))
+        t2 = asyncio.create_task(adapter._poll_loop(binding2, apply_jitter=False))
+        await asyncio.sleep(0.15)
+        t1.cancel()
+        t2.cancel()
+        await asyncio.gather(t1, t2, return_exceptions=True)
+
+        bad_events = [
+            c.args[0]
+            for c in bus.publish.call_args_list
+            if hasattr(c.args[0], "quality") and c.args[0].quality == "bad"
+        ]
+        assert connect_calls == 1
+        assert len(bad_events) >= 2, (
+            "Reconnect lock was held during poll_interval sleep; the second binding "
+            "could not publish bad quality while the first binding was backing off."
         )
 
     async def test_backoff_uses_shortest_active_poll_interval(self):
