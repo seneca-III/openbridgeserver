@@ -1971,11 +1971,7 @@ class TestReconnectBackoff:
         t2.cancel()
         await asyncio.gather(t1, t2, return_exceptions=True)
 
-        bad_events = [
-            c.args[0]
-            for c in bus.publish.call_args_list
-            if hasattr(c.args[0], "quality") and c.args[0].quality == "bad"
-        ]
+        bad_events = [c.args[0] for c in bus.publish.call_args_list if hasattr(c.args[0], "quality") and c.args[0].quality == "bad"]
         assert connect_calls == 1
         assert len(bad_events) >= 2, (
             "Reconnect lock was held during poll_interval sleep; the second binding "
