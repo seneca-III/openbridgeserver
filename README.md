@@ -1717,7 +1717,7 @@ The database is updated automatically — each new version adds missing tables a
 ---
 
 ## Translations
-We'd like to use [Weblate](https://hosted.weblate.org/projects/open-bridge-server) to support language translations. As soon as this is set up, ontributions would be very much welcome.
+We'd like to use [Weblate](https://hosted.weblate.org/projects/open-bridge-server) to support language translations. As soon as this is set up, contributions would be very much welcome.
 
 ## License
 
