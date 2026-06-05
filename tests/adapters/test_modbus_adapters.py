@@ -1255,19 +1255,15 @@ class TestModbusTcpConfigOptions:
         adapter._io_sem.release()
 
     async def test_serialize_reads_false_creates_unlimited_semaphore(self):
-        """serialize_reads=False must allow concurrent reads (Semaphore with large value)."""
+        """serialize_reads=False: _io_sem is None (no locking — unlimited concurrency)."""
         adapter, _ = _make_tcp({"host": "127.0.0.1", "port": 502, "timeout": 1.0, "serialize_reads": False})
         client = _make_client(connected=True)
         fake_mod = MagicMock()
         fake_mod.AsyncModbusTcpClient = MagicMock(return_value=client)
         with patch.dict("sys.modules", {"pymodbus.client": fake_mod}):
             await adapter.connect()
-        # Should be able to acquire many times without blocking
-        for _ in range(10):
-            await adapter._io_sem.acquire()
-        assert not adapter._io_sem.locked()
-        for _ in range(10):
-            adapter._io_sem.release()
+        # With serialize_reads=False, _io_sem is None — no lock, unlimited concurrency
+        assert adapter._io_sem is None
 
     async def test_default_config_has_serialize_reads_true(self):
         """Default adapter config must have serialize_reads=True (safe default)."""
@@ -1464,6 +1460,7 @@ class TestJitterOnlyOnInitialLoad:
         with patch.object(adapter, "_poll_loop", side_effect=recording_poll_loop):
             adapter._bindings = [make_binding(_HOLDING_CFG, direction="SOURCE")]
             await adapter._on_bindings_reloaded()
+            await asyncio.sleep(0)  # let the created task(s) start and run recording_poll_loop
 
         assert jitter_flags == [True], "Jitter must be applied on first reload"
         assert adapter._initial_load_done
@@ -1485,6 +1482,7 @@ class TestJitterOnlyOnInitialLoad:
         with patch.object(adapter, "_poll_loop", side_effect=recording_poll_loop):
             adapter._bindings = [make_binding(_HOLDING_CFG, direction="SOURCE")]
             await adapter._on_bindings_reloaded()
+            await asyncio.sleep(0)  # let tasks start
 
         assert jitter_flags == [False], "Jitter must NOT be applied on subsequent reloads"
 
