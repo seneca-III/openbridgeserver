@@ -232,6 +232,32 @@ describe('matchEntry — hierarchy-only filters', () => {
     expect(matchEntry({ ...entry, source_adapter: 'mqtt' }, filter)).toBe(false)
   })
 
+  it('OR-combines hierarchy_nodes with explicit datapoints before other criteria', () => {
+    const filter = {
+      hierarchy_nodes: [{ tree_id: 't', node_id: 'floor-1', include_descendants: true }],
+      datapoints: ['dp-explicit'],
+      adapters: ['knx'],
+    }
+    const hierarchyEntry = makeEntry({
+      datapoint_id: 'dp-from-hierarchy',
+      source_adapter: 'knx',
+      metadata: {
+        hierarchy_nodes: [
+          { tree_id: 't', node_id: 'leaf', ancestor_node_ids: ['leaf', 'floor-1', 'root'] },
+        ],
+      },
+    })
+    const explicitEntry = makeEntry({
+      datapoint_id: 'dp-explicit',
+      source_adapter: 'knx',
+      metadata: { hierarchy_nodes: [] },
+    })
+    expect(matchEntry(hierarchyEntry, filter)).toBe(true)
+    expect(matchEntry(explicitEntry, filter)).toBe(true)
+    expect(matchEntry({ ...explicitEntry, source_adapter: 'mqtt' }, filter)).toBe(false)
+    expect(matchEntry(makeEntry({ datapoint_id: 'dp-other', source_adapter: 'knx' }), filter)).toBe(false)
+  })
+
   it('returns false without hierarchy metadata', () => {
     expect(matchEntry(makeEntry({ source_adapter: 'knx' }), {
       hierarchy_nodes: [{ tree_id: 't', node_id: 'n', include_descendants: true }],

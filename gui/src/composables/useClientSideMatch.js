@@ -127,19 +127,21 @@ export function matchEntry(entry, criteria) {
   if (!entry) return false
 
   const hasHierarchyConstraint = Array.isArray(criteria.hierarchy_nodes) && criteria.hierarchy_nodes.length > 0
+  const hasDatapointConstraint = Array.isArray(criteria.datapoints) && criteria.datapoints.length > 0
   const hasClientConstraint =
-    (Array.isArray(criteria.datapoints) && criteria.datapoints.length > 0) ||
+    hasDatapointConstraint ||
     (Array.isArray(criteria.adapters) && criteria.adapters.length > 0) ||
     (Array.isArray(criteria.tags) && criteria.tags.length > 0) ||
     (typeof criteria.q === 'string' && criteria.q.trim().length > 0) ||
     (criteria.value_filter && criteria.value_filter.operator)
   if (!hasHierarchyConstraint && !hasClientConstraint) return false
 
-  if (hasHierarchyConstraint && !_matchHierarchy(entry, criteria.hierarchy_nodes)) return false
-
-  // datapoints
-  if (Array.isArray(criteria.datapoints) && criteria.datapoints.length > 0) {
-    if (!criteria.datapoints.includes(entry.datapoint_id)) return false
+  // Server-side hierarchy resolution OR-unions resolved hierarchy datapoints
+  // with explicit datapoints before applying the remaining AND constraints.
+  if (hasHierarchyConstraint || hasDatapointConstraint) {
+    const matchesHierarchy = hasHierarchyConstraint && _matchHierarchy(entry, criteria.hierarchy_nodes)
+    const matchesDatapoint = hasDatapointConstraint && criteria.datapoints.includes(entry.datapoint_id)
+    if (!matchesHierarchy && !matchesDatapoint) return false
   }
 
   // adapters
