@@ -421,7 +421,7 @@ const filterIsEmpty = computed(() =>
     tags: form.tags,
     adapters: form.adapters,
     q: form.q,
-    value_filter: form.valueOperator ? { operator: form.valueOperator } : null,
+    value_filter: buildValueFilter(),
   }),
 )
 

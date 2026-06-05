@@ -686,11 +686,12 @@ describe('FilterEditor (#436)', () => {
 
   it('regex data type serialises a typed pattern even before selecting an operator', async () => {
     const ringbufferApi = makeRingbufferApi()
-    const { wrapper } = await mountEditor({ props: { setId: null }, ringbufferApi })
+    const { wrapper } = await mountEditor({ props: { setId: null }, ringbufferApi, leaveEmpty: true })
     await wrapper.find('[data-testid="filter-editor-name"]').setValue('Implicit Regex')
     await wrapper.find('[data-testid="filter-editor-value-type"]').setValue('regex')
     await wrapper.find('[data-testid="filter-editor-value-pattern"]').setValue('temp$')
     await wrapper.find('[data-testid="filter-editor-value-ignore-case"]').setValue(true)
+    expect(wrapper.find('[data-testid="filter-editor-save-topbar"]').element.disabled).toBe(false)
     await wrapper.find('[data-testid="filter-editor-save-topbar"]').trigger('click')
     await flushPromises()
 
