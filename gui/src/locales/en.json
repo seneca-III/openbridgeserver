@@ -965,7 +965,6 @@
       "valueBetweenRequired": "Lower and upper bound are required for between.",
       "valueRangeInvalid": "Lower bound must not be greater than upper bound.",
       "valuePatternRequired": "The regex value filter requires a pattern.",
-      "valuePatternInvalid": "The regex pattern is invalid.",
       "deleteTitle": "Delete filter set permanently",
       "deleteRestricted": "Only the owner or an admin may delete",
       "saveRestricted": "Only the owner or an admin may save",

@@ -605,6 +605,21 @@ describe('FilterEditor (#436)', () => {
     expect(payload.filter.value_filter).toMatchObject({ operator: 'regex', pattern: '^temp', ignore_case: true })
   })
 
+  it('allows Python-compatible regex syntax that JavaScript RegExp rejects', async () => {
+    const ringbufferApi = makeRingbufferApi()
+    const { wrapper } = await mountEditor({ props: { setId: null }, ringbufferApi })
+    await wrapper.find('[data-testid="filter-editor-name"]').setValue('Python Regex')
+    await wrapper.find('[data-testid="filter-editor-value-type"]').setValue('regex')
+    await wrapper.find('[data-testid="filter-editor-value-operator"]').setValue('regex')
+    await wrapper.find('[data-testid="filter-editor-value-pattern"]').setValue('(?P<name>temp)')
+    await wrapper.find('[data-testid="filter-editor-save-topbar"]').trigger('click')
+    await flushPromises()
+
+    expect(ringbufferApi.createFilterset).toHaveBeenCalledTimes(1)
+    const payload = ringbufferApi.createFilterset.mock.calls[0][0]
+    expect(payload.filter.value_filter).toMatchObject({ operator: 'regex', pattern: '(?P<name>temp)' })
+  })
+
   it('roundtrips a value_filter of operator gt from getFilterset payload', async () => {
     const ringbufferApi = makeRingbufferApi({
       getFilterset: vi.fn().mockResolvedValue({

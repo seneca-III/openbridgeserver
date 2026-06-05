@@ -391,11 +391,6 @@ function valueFilterValidationKey() {
   if (form.valueOperator === 'regex') {
     const pattern = form.valuePattern.trim()
     if (!pattern) return 'ringbuffer.filterEditor.valuePatternRequired'
-    try {
-      new RegExp(pattern)
-    } catch {
-      return 'ringbuffer.filterEditor.valuePatternInvalid'
-    }
     return ''
   }
 

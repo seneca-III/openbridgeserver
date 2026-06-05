@@ -965,7 +965,6 @@
       "valueBetweenRequired": "Unter- und Obergrenze sind für between erforderlich.",
       "valueRangeInvalid": "Die Untergrenze darf nicht grösser als die Obergrenze sein.",
       "valuePatternRequired": "Für den Regex-Wertfilter ist ein Pattern erforderlich.",
-      "valuePatternInvalid": "Das Regex-Pattern ist ungültig.",
       "deleteTitle": "Filter-Set unwiderruflich löschen",
       "deleteRestricted": "Nur der Eigentümer oder ein Admin darf löschen",
       "saveRestricted": "Nur der Eigentümer oder ein Admin darf speichern",
