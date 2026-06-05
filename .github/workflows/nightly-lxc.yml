@@ -1,0 +1,97 @@
+name: Nightly LXC Template
+
+on:
+  schedule:
+    - cron: '25 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: nightly-lxc
+  cancel-in-progress: false
+
+env:
+  LXC_ARTIFACT_RETENTION_DAYS: 14
+
+jobs:
+  dispatch:
+    name: Dispatch LXC template build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch existing LXC template workflow
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Record a timestamp just before dispatch so we can identify the run
+          # we triggered (and not an unrelated concurrent one).
+          DISPATCH_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run lxc-template.yml \
+            --repo "$REPO" \
+            --ref main
+          echo "dispatch_ts=$DISPATCH_TS" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for dispatched build to finish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DISPATCH_TS: ${{ steps.dispatch.outputs.dispatch_ts }}
+        run: |
+          set -euo pipefail
+
+          # Poll until the run created by our dispatch shows up, then capture it.
+          RUN_ID=""
+          for _ in $(seq 1 30); do
+            RUN_ID="$(gh run list \
+              --repo "$REPO" \
+              --workflow lxc-template.yml \
+              --event workflow_dispatch \
+              --branch main \
+              --limit 10 \
+              --json databaseId,createdAt \
+              --jq "[.[] | select(.createdAt >= \"$DISPATCH_TS\")] | sort_by(.createdAt) | last | .databaseId // empty")"
+            [[ -n "$RUN_ID" ]] && break
+            sleep 10
+          done
+
+          if [[ -z "$RUN_ID" ]]; then
+            echo "Could not locate the dispatched lxc-template run; skipping prune." >&2
+            exit 1
+          fi
+
+          echo "Watching lxc-template run ${RUN_ID}"
+          # --exit-status makes this step fail if the build concluded in failure,
+          # which short-circuits the prune step below.
+          gh run watch "$RUN_ID" --repo "$REPO" --exit-status --interval 30
+
+      - name: Prune old LXC artifacts
+        # Only runs when the dispatched build succeeded (previous steps green).
+        # This guarantees we never delete the last good nightly artifacts during
+        # a prolonged build outage.
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RETENTION_DAYS: ${{ env.LXC_ARTIFACT_RETENTION_DAYS }}
+        run: |
+          set -euo pipefail
+
+          CUTOFF_EPOCH="$(date -u -d "${RETENTION_DAYS} days ago" +%s)"
+          gh api --paginate "/repos/${REPO}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select((.name == "lxc-amd64") or (.name == "lxc-arm64") or (.name == "app-bundle")) | [.id, .created_at, .name] | @tsv' \
+            > artifacts.tsv
+
+          while IFS=$'\t' read -r ARTIFACT_ID CREATED_AT ARTIFACT_NAME; do
+            [[ -z "$ARTIFACT_ID" ]] && continue
+            CREATED_EPOCH="$(date -u -d "$CREATED_AT" +%s)"
+            if (( CREATED_EPOCH < CUTOFF_EPOCH )); then
+              echo "Deleting old LXC artifact ${ARTIFACT_NAME} (${ARTIFACT_ID}) from ${CREATED_AT}"
+              gh api --method DELETE "/repos/${REPO}/actions/artifacts/${ARTIFACT_ID}"
+            fi
+          done < artifacts.tsv
