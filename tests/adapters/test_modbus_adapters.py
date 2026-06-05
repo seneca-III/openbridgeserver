@@ -910,7 +910,7 @@ class TestBindingsReloadedAwaitAndReconnect:
             try:
                 await asyncio.sleep(100)
             except asyncio.CancelledError:
-                await asyncio.sleep(0)
+                # Set event synchronously — asyncio.sleep(0) can race with gather() in Py3.13
                 handled_cancel.set()
                 raise
 
@@ -987,8 +987,11 @@ class TestBindingsReloadedAwaitAndReconnect:
 
         client.connect.assert_awaited_once()
 
-    async def test_does_not_reconnect_when_client_still_connected(self):
-        """If the client is still connected, no reconnect should happen."""
+    async def test_always_reconnects_after_reload_for_clean_tcp_state(self):
+        """After reload the client is always closed and reconnected regardless of
+        connected state — cancelled tasks may leave a pending in-flight request
+        that corrupts the TCP stream even when connected=True.
+        """
         adapter, _ = _make_tcp()
         client = _make_client(connected=True)
         adapter._client = client
@@ -996,7 +999,8 @@ class TestBindingsReloadedAwaitAndReconnect:
 
         await adapter._on_bindings_reloaded()
 
-        client.connect.assert_not_awaited()
+        client.close.assert_called_once()
+        client.connect.assert_awaited_once()
 
     async def test_reconnect_failure_is_swallowed_new_tasks_still_start(self):
         """A reconnect failure must not propagate — new tasks still start."""
@@ -1324,18 +1328,16 @@ class TestModbusTcpConfigOptions:
         binding = make_binding({**_HOLDING_CFG, "poll_interval": 60.0}, direction="SOURCE")
 
         # Only one task — track and cancel it properly to avoid leaked pending tasks.
-        with patch("asyncio.sleep", side_effect=recording_sleep):
+        async def recording_sleep_cancel(delay: float, *_a, **_kw) -> None:
+            sleep_calls.append(delay)
+            raise asyncio.CancelledError  # exit loop immediately after first sleep
+
+        with patch("asyncio.sleep", side_effect=recording_sleep_cancel):
             task = asyncio.create_task(adapter._poll_loop(binding))
             try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=0.1)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+                await task
+            except asyncio.CancelledError:
                 pass
-            finally:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
 
         assert len(sleep_calls) >= 1, "No initial jitter sleep produced"
         assert sleep_calls[0] <= 5.0, f"Jitter sleep {sleep_calls[0]:.2f}s exceeds startup_jitter_s=5.0"
