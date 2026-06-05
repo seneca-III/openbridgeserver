@@ -1290,19 +1290,14 @@ class TestModbusTcpConfigOptions:
         adapter._client = client
 
         sleep_calls = []
-        original_sleep = asyncio.sleep
-
         async def recording_sleep(delay, *args, **kwargs):
             sleep_calls.append(delay)
-            await original_sleep(0)  # don't actually sleep
+            raise asyncio.CancelledError  # exit immediately after capturing the delay
 
         binding = make_binding(_HOLDING_CFG, direction="SOURCE")
-        task = asyncio.create_task(adapter._poll_loop(binding))
 
         with patch("asyncio.sleep", side_effect=recording_sleep):
             task = asyncio.create_task(adapter._poll_loop(binding))
-            await asyncio.sleep(0.05)
-            task.cancel()
             try:
                 await task
             except asyncio.CancelledError:
@@ -1538,3 +1533,138 @@ class TestSilentReconnectFailure:
 
         events = [c.args[0] for c in bus.publish.call_args_list if hasattr(c.args[0], "quality")]
         assert any(e.quality == "bad" for e in events), "Expected bad-quality event when connect() succeeds but client stays disconnected"
+
+
+# ---------------------------------------------------------------------------
+# P2 review fixes — reload lock, backoff, io_sem around close/connect
+# ---------------------------------------------------------------------------
+
+
+class TestReloadLock:
+    """_reload_lock prevents concurrent _on_bindings_reloaded() calls from
+    interleaving their cancel/create sequences and producing orphan tasks.
+    """
+
+    async def test_concurrent_reloads_are_serialized(self):
+        """Two concurrent reload calls must not interleave."""
+        adapter, _ = _make_tcp()
+        adapter._client = _make_client()
+        adapter._bindings = []
+
+        reload_order = []
+
+        async def slow_reload(n):
+            reload_order.append(f"start_{n}")
+            await adapter._on_bindings_reloaded()
+            reload_order.append(f"end_{n}")
+
+        t1 = asyncio.create_task(slow_reload(1))
+        t2 = asyncio.create_task(slow_reload(2))
+        await asyncio.gather(t1, t2)
+
+        # end_1 must appear before start_2 OR end_2 before start_1 (never interleaved)
+        s1, e1 = reload_order.index("start_1"), reload_order.index("end_1")
+        s2, e2 = reload_order.index("start_2"), reload_order.index("end_2")
+        assert e1 < s2 or e2 < s1, f"Reloads interleaved: {reload_order}"
+
+
+class TestReloadIoSemaphoreForCloseConnect:
+    """_on_bindings_reloaded holds _io_sem around close()+connect() so an
+    in-progress DEST write cannot be interrupted by the socket teardown.
+    """
+
+    async def test_reload_waits_for_held_io_sem_before_closing(self):
+        """If _io_sem is held (write in progress), reload must wait."""
+        adapter, _ = _make_tcp({"host": "127.0.0.1", "port": 502, "timeout": 1.0})
+        client = _make_client(connected=True)
+        fake_mod = MagicMock()
+        fake_mod.AsyncModbusTcpClient = MagicMock(return_value=client)
+        with patch.dict("sys.modules", {"pymodbus.client": fake_mod}):
+            await adapter.connect()
+        adapter._bindings = []
+
+        close_called_while_sem_held = []
+
+        # Acquire the semaphore to simulate an in-progress write
+        await adapter._io_sem.acquire()
+
+        original_close = client.close
+
+        def recording_close():
+            # Check if sem is still held when close() is called
+            close_called_while_sem_held.append(adapter._io_sem.locked())
+            original_close()
+
+        client.close = recording_close
+
+        reload_task = asyncio.create_task(adapter._on_bindings_reloaded())
+        await asyncio.sleep(0.05)  # give reload a chance to run (should be blocked)
+        assert len(close_called_while_sem_held) == 0, "close() called while sem held — reload did not wait"
+
+        adapter._io_sem.release()  # release — reload should now proceed
+        await reload_task
+        assert len(close_called_while_sem_held) == 1, "close() was never called after sem released"
+
+
+class TestReloadPublishesStatus:
+    """_on_bindings_reloaded publishes adapter status after reconnect."""
+
+    async def test_reload_publishes_connected_on_success(self):
+        adapter, bus = _make_tcp()
+        client = _make_client(connected=True)
+        adapter._client = client
+        adapter._bindings = []
+
+        await adapter._on_bindings_reloaded()
+
+        status_events = [c.args[0] for c in bus.publish.call_args_list if hasattr(c.args[0], "connected")]
+        connected_events = [e for e in status_events if e.connected]
+        assert connected_events, "No connected=True status published after reload reconnect"
+
+    async def test_reload_publishes_disconnected_on_failure(self):
+        adapter, bus = _make_tcp()
+        client = _make_client(connected=False)
+        client.connect = AsyncMock(side_effect=OSError("refused"))
+        adapter._client = client
+        adapter._bindings = []
+
+        await adapter._on_bindings_reloaded()
+
+        status_events = [c.args[0] for c in bus.publish.call_args_list if hasattr(c.args[0], "connected")]
+        disconnected_events = [e for e in status_events if not e.connected]
+        assert disconnected_events, "No connected=False status published after reload reconnect failure"
+
+
+class TestReconnectBackoff:
+    """_reconnect_ok_after prevents N bindings from each firing a separate
+    connect() timeout when the device is offline.
+    """
+
+    async def test_only_one_connect_attempt_per_backoff_window(self):
+        """After a failed reconnect, subsequent tasks skip connect() until backoff clears."""
+        adapter, bus = _make_tcp()
+        connect_calls = 0
+
+        async def failing_connect():
+            nonlocal connect_calls
+            connect_calls += 1
+            # Never sets connected=True
+
+        client = _make_client(connected=False)
+        client.connect = AsyncMock(side_effect=failing_connect)
+        adapter._client = client
+
+        binding1 = make_binding(_HOLDING_CFG, direction="SOURCE")
+        binding2 = make_binding(_HOLDING_CFG, direction="SOURCE")
+
+        t1 = asyncio.create_task(adapter._poll_loop(binding1))
+        t2 = asyncio.create_task(adapter._poll_loop(binding2))
+        await asyncio.sleep(0.15)
+        t1.cancel()
+        t2.cancel()
+        await asyncio.gather(t1, t2, return_exceptions=True)
+
+        assert connect_calls == 1, (
+            f"Expected 1 connect() call due to backoff, got {connect_calls}. "
+            "Without backoff, every binding fires its own timeout."
+        )
