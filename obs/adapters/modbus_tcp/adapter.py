@@ -190,7 +190,6 @@ class ModbusTcpAdapter(AdapterBase):
         _jitter_max = self._adp_cfg.startup_jitter_s
         if _jitter_max > 0:
             await asyncio.sleep(random.uniform(0, min(bc.poll_interval * 0.5, _jitter_max)))
-        await asyncio.sleep(random.uniform(0, min(bc.poll_interval * 0.5, 30)))
 
         while True:
             # Auto-reconnect if the client became disconnected (e.g. after a reload
