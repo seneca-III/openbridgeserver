@@ -186,11 +186,10 @@ class ModbusTcpAdapter(AdapterBase):
             logger.warning("Invalid Modbus TCP binding config %s — skipped", binding.id)
             return
 
-        # Stagger the initial poll with a small random delay so that all tasks
-        # created simultaneously (e.g. on adapter start) do not all fire at once.
-        # Without jitter, N tasks × simultaneous reads overwhelm single-threaded
-        # Modbus TCP devices that only process one request at a time.
-        import random
+        # Stagger first poll using startup_jitter_s adapter option.
+        _jitter_max = self._adp_cfg.startup_jitter_s
+        if _jitter_max > 0:
+            await asyncio.sleep(random.uniform(0, min(bc.poll_interval * 0.5, _jitter_max)))
         await asyncio.sleep(random.uniform(0, min(bc.poll_interval * 0.5, 30)))
 
         while True:
