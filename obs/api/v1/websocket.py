@@ -151,6 +151,13 @@ class WebSocketManager:
         dp = reg.get(event.datapoint_id)
         state = reg.get_value(event.datapoint_id)
         ts_str = event.ts.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        from obs.ringbuffer.ringbuffer import build_ringbuffer_metadata_snapshot
+
+        metadata = await build_ringbuffer_metadata_snapshot(
+            dp_id=dp_id_str,
+            source_adapter=str(event.source_adapter),
+            datapoint=dp,
+        )
 
         # ── 1. Per-subscription DP value events ──────────────────────────
         dp_msg = {
@@ -182,6 +189,8 @@ class WebSocketManager:
                 "quality": event.quality,
                 "source_adapter": event.source_adapter,
                 "unit": dp.unit if dp else None,
+                "metadata_version": 1,
+                "metadata": metadata,
             },
         }
         dead = []

@@ -12,7 +12,9 @@
  *   3. With no topbar sets active the table is unfiltered, as before.
  *
  * The matcher is the client-side equivalent of FilterCriteria
- * (datapoints / adapters / tags / q / value_filter; hierarchy is pass-through).
+ * (datapoints / adapters / tags / q / value_filter). Hierarchy is resolved by
+ * the backend, so the view refreshes from REST when hierarchy-only matching is
+ * needed for a live push.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mountRingBufferView, makeRingbufferApiMock, flushPromises } from '../helpers/mountRingBufferView'
@@ -53,6 +55,24 @@ const ACTIVE_SET_KNX = {
   filter_json: '{"adapters":["knx"]}',
 }
 
+const ACTIVE_SET_HIERARCHY = {
+  id: 'set-hierarchy',
+  name: 'Etage',
+  is_active: true,
+  color: '#22c55e',
+  topbar_active: true,
+  topbar_order: 0,
+  filter: {
+    hierarchy_nodes: [{ tree_id: 'tree-1', node_id: 'node-1', include_descendants: true }],
+    datapoints: [],
+    tags: [],
+    adapters: [],
+    q: null,
+    value_filter: null,
+  },
+  filter_json: '{"hierarchy_nodes":[{"tree_id":"tree-1","node_id":"node-1","include_descendants":true}]}',
+}
+
 function makeLiveEntry(overrides = {}) {
   return {
     id: 9999,
@@ -87,7 +107,7 @@ describe('RingBufferView — live-entry matching (#36 follow-up)', () => {
     await flushPromises()
 
     // Live entry with tag "heizung" AND adapter "knx" — should be matched by both sets
-    emitLive(makeLiveEntry({ metadata: { tags: ['heizung'] }, source_adapter: 'knx' }))
+    emitLive(makeLiveEntry({ metadata: { datapoint: { tags: ['heizung'] } }, source_adapter: 'knx' }))
     await flushPromises()
     await new Promise((r) => setTimeout(r, 120))
     await flushPromises()
@@ -115,6 +135,29 @@ describe('RingBufferView — live-entry matching (#36 follow-up)', () => {
 
     const rows = wrapper.findAll('[data-testid="ringbuffer-entry"]')
     expect(rows.length).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('refreshes from REST for hierarchy-filtered live entries', async () => {
+    const liveEntry = makeLiveEntry({ datapoint_id: 'dp-hier' })
+    const ringbufferApi = makeRingbufferApiMock({
+      listFiltersets: vi.fn().mockResolvedValue({ data: [ACTIVE_SET_HIERARCHY] }),
+      queryMultiFiltersets: vi
+        .fn()
+        .mockResolvedValueOnce({ data: [] })
+        .mockResolvedValueOnce({ data: [{ ...liveEntry, matched_set_ids: ['set-hierarchy'] }] }),
+    })
+    const { wrapper, emitLive } = await mountRingBufferView({ ringbufferApi })
+    await flushPromises()
+
+    emitLive(liveEntry)
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 180))
+    await flushPromises()
+
+    expect(ringbufferApi.queryMultiFiltersets).toHaveBeenCalledTimes(2)
+    const rows = wrapper.findAll('[data-testid="ringbuffer-entry"]')
+    expect(rows.length).toBe(1)
     wrapper.unmount()
   })
 

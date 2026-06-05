@@ -510,7 +510,7 @@ class RingBuffer:
         except RuntimeError:
             topic = f"dp/{dp_id}/value"
 
-        metadata = await self._build_metadata_snapshot(
+        metadata = await build_ringbuffer_metadata_snapshot(
             dp_id=dp_id,
             source_adapter=str(event.source_adapter),
             datapoint=dp,
@@ -527,52 +527,6 @@ class RingBuffer:
             metadata=metadata,
         )
         self._last_values[dp_id] = event.value
-
-    async def _build_metadata_snapshot(
-        self,
-        *,
-        dp_id: str,
-        source_adapter: str,
-        datapoint: Any,
-    ) -> dict[str, Any]:
-        bindings: list[dict[str, Any]] = []
-        try:
-            from obs.db.database import get_db
-
-            rows = await get_db().fetchall(
-                """SELECT adapter_type, adapter_instance_id, direction, config
-                   FROM adapter_bindings
-                   WHERE datapoint_id=? AND enabled=1
-                   ORDER BY created_at, id""",
-                (dp_id,),
-            )
-            for row in rows:
-                raw_config = _safe_loads(row["config"])
-                config = raw_config if isinstance(raw_config, dict) else {}
-                bindings.append(
-                    {
-                        "adapter_type": str(row["adapter_type"] or ""),
-                        "adapter_instance_id": str(row["adapter_instance_id"] or ""),
-                        "direction": str(row["direction"] or ""),
-                        "normalized": _normalize_binding_metadata(config),
-                    }
-                )
-        except RuntimeError:
-            pass
-        except Exception:
-            logger.exception("RingBuffer metadata snapshot for dp=%s failed", dp_id)
-
-        tags = list(datapoint.tags) if datapoint and isinstance(getattr(datapoint, "tags", None), list) else []
-        return {
-            "source": {"adapter": source_adapter},
-            "datapoint": {
-                "id": dp_id,
-                "name": getattr(datapoint, "name", None),
-                "data_type": getattr(datapoint, "data_type", None),
-                "tags": tags,
-            },
-            "bindings": bindings,
-        }
 
     # ------------------------------------------------------------------
     # Query
@@ -974,6 +928,52 @@ def _normalize_binding_metadata(config: dict[str, Any]) -> dict[str, Any]:
         "register_type": _str_or_empty(config.get("register_type")),
         "register_address": _str_or_empty(config.get("address")),
         "unit_id": _str_or_empty(config.get("unit_id")),
+    }
+
+
+async def build_ringbuffer_metadata_snapshot(
+    *,
+    dp_id: str,
+    source_adapter: str,
+    datapoint: Any,
+) -> dict[str, Any]:
+    bindings: list[dict[str, Any]] = []
+    try:
+        from obs.db.database import get_db
+
+        rows = await get_db().fetchall(
+            """SELECT adapter_type, adapter_instance_id, direction, config
+               FROM adapter_bindings
+               WHERE datapoint_id=? AND enabled=1
+               ORDER BY created_at, id""",
+            (dp_id,),
+        )
+        for row in rows:
+            raw_config = _safe_loads(row["config"])
+            config = raw_config if isinstance(raw_config, dict) else {}
+            bindings.append(
+                {
+                    "adapter_type": str(row["adapter_type"] or ""),
+                    "adapter_instance_id": str(row["adapter_instance_id"] or ""),
+                    "direction": str(row["direction"] or ""),
+                    "normalized": _normalize_binding_metadata(config),
+                }
+            )
+    except RuntimeError:
+        pass
+    except Exception:
+        logger.exception("RingBuffer metadata snapshot for dp=%s failed", dp_id)
+
+    tags = list(datapoint.tags) if datapoint and isinstance(getattr(datapoint, "tags", None), list) else []
+    return {
+        "source": {"adapter": source_adapter},
+        "datapoint": {
+            "id": dp_id,
+            "name": getattr(datapoint, "name", None),
+            "data_type": getattr(datapoint, "data_type", None),
+            "tags": tags,
+        },
+        "bindings": bindings,
     }
 
 

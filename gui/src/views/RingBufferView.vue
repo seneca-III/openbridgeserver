@@ -147,6 +147,7 @@ import ExportDialog from '@/views/ringbuffer/ExportDialog.vue'
 import MonitorConfigModal from '@/views/ringbuffer/MonitorConfigModal.vue'
 
 const DEFAULT_QUERY_LIMIT = 500
+const LIVE_SERVER_REFRESH_DELAY_MS = 120
 
 const { t } = useI18n()
 const { fmtDateTime } = useTz()
@@ -235,6 +236,7 @@ async function onTimeFilterChanged() {
 const tableWrapRef = ref(null)
 const filtersets = ref([])
 let liveIngressSeq = 0
+let liveServerRefreshTimer = null
 
 const { paused, queuedCount, enqueue: enqueueLive, pause: pauseLive, resume: resumeLive, clear: clearLiveQueue, dispose: disposeLiveQueue } =
   useLiveQueue(entries, {
@@ -258,6 +260,19 @@ function entryIdentity(entry) {
     JSON.stringify(entry?.new_value ?? null),
     JSON.stringify(entry?.old_value ?? null),
   ].join('|')
+}
+
+function hasHierarchyCriteria(set) {
+  return Array.isArray(set?.filter?.hierarchy_nodes) && set.filter.hierarchy_nodes.length > 0
+}
+
+function scheduleServerRefreshForLiveFilter() {
+  if (paused.value || liveServerRefreshTimer) return
+  liveServerRefreshTimer = setTimeout(() => {
+    liveServerRefreshTimer = null
+    if (paused.value) return
+    void load()
+  }, LIVE_SERVER_REFRESH_DELAY_MS)
 }
 
 function mergeEntriesKeepingLiveFirst(liveFirst, loaded) {
@@ -385,7 +400,10 @@ function onLiveEntry(entry) {
     return
   }
   const ids = matchedSetIds(entry, activeSets)
-  if (ids.length === 0) return
+  if (ids.length === 0) {
+    if (activeSets.some(hasHierarchyCriteria)) scheduleServerRefreshForLiveFilter()
+    return
+  }
   markAndEnqueueLive({ ...entry, matched_set_ids: ids })
 }
 
@@ -409,6 +427,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unregisterRb?.()
+  clearTimeout(liveServerRefreshTimer)
+  liveServerRefreshTimer = null
   disposeLiveQueue()
 })
 

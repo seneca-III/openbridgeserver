@@ -49,12 +49,25 @@ async def test_ringbuffer_entry_payload_contains_documented_fields(monkeypatch):
 
     class _RegistryStub:
         def get(self, _dp_id):
-            return SimpleNamespace(name="Contract DP", unit="W")
+            return SimpleNamespace(name="Contract DP", unit="W", data_type="FLOAT", tags=["heizung"])
 
         def get_value(self, _dp_id):
             return SimpleNamespace(old_value=12.5)
 
     monkeypatch.setattr("obs.core.registry.get_registry", lambda: _RegistryStub())
+
+    class _DbStub:
+        async def fetchall(self, _query, _params):
+            return [
+                {
+                    "adapter_type": "KNX",
+                    "adapter_instance_id": "inst-1",
+                    "direction": "both",
+                    "config": '{"group_address":"1/2/30"}',
+                }
+            ]
+
+    monkeypatch.setattr("obs.db.database.get_db", lambda: _DbStub())
 
     event = DataValueEvent(
         datapoint_id=dp_id,
@@ -79,6 +92,8 @@ async def test_ringbuffer_entry_payload_contains_documented_fields(monkeypatch):
         "old_value",
         "quality",
         "source_adapter",
+        "metadata_version",
+        "metadata",
     }
     assert required_fields.issubset(entry.keys())
     assert entry["datapoint_id"] == str(dp_id)
@@ -88,6 +103,11 @@ async def test_ringbuffer_entry_payload_contains_documented_fields(monkeypatch):
     assert entry["quality"] == "good"
     assert entry["source_adapter"] == "api"
     assert entry["ts"] == "2026-05-06T19:44:49.123Z"
+    assert entry["metadata_version"] == 1
+    assert entry["metadata"]["datapoint"]["id"] == str(dp_id)
+    assert entry["metadata"]["datapoint"]["tags"] == ["heizung"]
+    assert entry["metadata"]["bindings"][0]["adapter_type"] == "KNX"
+    assert entry["metadata"]["bindings"][0]["normalized"]["group_address"] == "1/2/30"
 
 
 @pytest.mark.asyncio

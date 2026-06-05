@@ -7,18 +7,31 @@
  * Field semantics (mirroring `FilterCriteria` from obs/api/v1/ringbuffer.py):
  *   - datapoints[]  — OR over entry.datapoint_id
  *   - adapters[]    — OR over entry.source_adapter
- *   - tags[]        — OR over entry.metadata.tags
+ *   - tags[]        — OR over entry.metadata.datapoint.tags
  *   - q             — substring (case-insensitive) over name | datapoint_id | source_adapter
  *   - value_filter  — operator + value/lower/upper/pattern over entry.new_value
- *   - hierarchy_nodes — pass-through (the frontend has no hierarchy resolver;
- *                       a set with only hierarchy filters matches every entry
- *                       on the client). The REST OR-union remains authoritative.
+ *   - hierarchy_nodes — server-side only. The frontend has no hierarchy
+ *                       resolver, so hierarchy criteria never match locally.
  *
  * Multiple criteria within a single FilterCriteria are AND-combined.
  */
 
-function _arrayIncludes(list, value) {
-  return Array.isArray(list) && list.length > 0 && list.includes(value)
+function _normalizedStrings(list) {
+  if (!Array.isArray(list)) return []
+  return list
+    .map((value) => String(value ?? '').trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function _entryTags(entry) {
+  const metadata = entry?.metadata
+  if (!metadata || typeof metadata !== 'object') return []
+  const datapoint = metadata.datapoint
+  if (datapoint && typeof datapoint === 'object' && Array.isArray(datapoint.tags)) {
+    return _normalizedStrings(datapoint.tags)
+  }
+  // Legacy test fixtures and pre-metadata live payloads used metadata.tags.
+  return _normalizedStrings(metadata.tags)
 }
 
 /**
@@ -75,17 +88,19 @@ function _matchValueFilter(entryValue, vf) {
  *
  * Empty / null / undefined criteria match NOTHING (Phase-2 UX feedback).
  *
- * Hierarchy-only filters also match NOTHING on the client: the frontend has
- * no hierarchy resolver, and silently accepting every entry would colour
- * unrelated rows (e.g. a Wetterstation push would inherit a hierarchy set's
- * colour). The REST OR-union already does the right thing using the server's
- * recursive node-DP resolution, so the next refresh shows real matches; live
- * pushes for hierarchy-only sets stay uncoloured until then.
+ * Hierarchy filters also match NOTHING on the client, even when combined with
+ * other constraints: the server expands hierarchy_nodes to concrete datapoints
+ * before applying the AND-combined criteria. Accepting locally would let rows
+ * through that only match the non-hierarchy part.
  */
 export function matchEntry(entry, criteria) {
   if (!criteria || typeof criteria !== 'object') return false
   if (isEmptyFilter(criteria)) return false
   if (!entry) return false
+
+  if (Array.isArray(criteria.hierarchy_nodes) && criteria.hierarchy_nodes.length > 0) {
+    return false
+  }
 
   const hasNonHierarchyConstraint =
     (Array.isArray(criteria.datapoints) && criteria.datapoints.length > 0) ||
@@ -107,12 +122,10 @@ export function matchEntry(entry, criteria) {
 
   // tags
   if (Array.isArray(criteria.tags) && criteria.tags.length > 0) {
-    const entryTags = entry.metadata && Array.isArray(entry.metadata.tags) ? entry.metadata.tags : []
-    const hasAny = criteria.tags.some((t) => entryTags.includes(t))
+    const entryTags = _entryTags(entry)
+    const requestedTags = _normalizedStrings(criteria.tags)
+    const hasAny = requestedTags.some((t) => entryTags.includes(t))
     if (!hasAny) return false
-    // Avoid lint complaints about unused helper above; _arrayIncludes is exported-like
-    // (kept for clarity of intent in future overloads).
-    void _arrayIncludes
   }
 
   // q (case-insensitive substring over name | datapoint_id | source_adapter)

@@ -13,14 +13,12 @@
  * The matcher mirrors the simple, server-equivalent fields of FilterCriteria:
  *   datapoints — list of datapoint UUIDs, OR
  *   adapters   — list of adapter type strings, OR
- *   tags       — list of tag strings, OR over entry.metadata.tags
+ *   tags       — list of tag strings, OR over entry.metadata.datapoint.tags
  *   q          — substring match over name | datapoint_id | source_adapter
  *   value_filter — operator over new_value
  *
- * hierarchy_nodes is intentionally pass-through: the frontend does not have
- * a hierarchy resolver, and live-entry filtering is best-effort. A set with
- * only hierarchy filters therefore matches every entry on the client (the
- * REST OR-union will still be correct on the next refresh).
+ * hierarchy_nodes is server-side only: the frontend does not have a hierarchy
+ * resolver, so RingBufferView falls back to a REST refresh for those sets.
  */
 import { describe, it, expect } from 'vitest'
 import { matchEntry, isEmptyFilter } from '@/composables/useClientSideMatch'
@@ -115,6 +113,10 @@ describe('matchEntry — tags (OR)', () => {
     expect(matchEntry(makeEntry({ metadata: { tags: ['heizung', 'küche'] } }), { tags: ['küche'] })).toBe(true)
   })
 
+  it('matches tags from the REST-compatible metadata.datapoint shape', () => {
+    expect(matchEntry(makeEntry({ metadata: { datapoint: { tags: ['Heizung', 'Küche'] } } }), { tags: ['küche'] })).toBe(true)
+  })
+
   it('does not match when entry has none of the requested tags', () => {
     expect(matchEntry(makeEntry({ metadata: { tags: ['licht'] } }), { tags: ['heizung'] })).toBe(false)
   })
@@ -189,10 +191,10 @@ describe('matchEntry — hierarchy-only filters', () => {
     expect(matchEntry(makeEntry(), { hierarchy_nodes: [{ tree_id: 't', node_id: 'n', include_descendants: true }] })).toBe(false)
   })
 
-  it('matches when hierarchy_nodes is set alongside a client-evaluable criterion that accepts the entry', () => {
+  it('returns false when hierarchy_nodes is set alongside a client-evaluable criterion', () => {
     expect(matchEntry(makeEntry({ source_adapter: 'knx' }), {
       hierarchy_nodes: [{ tree_id: 't', node_id: 'n', include_descendants: true }],
       adapters: ['knx'],
-    })).toBe(true)
+    })).toBe(false)
   })
 })
