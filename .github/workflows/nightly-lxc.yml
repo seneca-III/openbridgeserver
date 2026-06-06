@@ -159,3 +159,26 @@ jobs:
               gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
             fi
           done < releases.tsv
+
+      - name: Delete dispatched run artifacts
+        # The .tar.zst / .tar.gz / .sha512 files now live on the nightly
+        # pre-release, so the source Actions artifacts are redundant. Delete
+        # them to avoid storage growth (lxc-template.yml sets no retention-days,
+        # so they would otherwise linger at the repo default ~90 days).
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.watch.outputs.run_id }}
+        run: |
+          set -euo pipefail
+
+          gh api --paginate "/repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.id, .name] | @tsv' \
+            > run-artifacts.tsv
+
+          while IFS=$'\t' read -r ARTIFACT_ID ARTIFACT_NAME; do
+            [[ -z "$ARTIFACT_ID" ]] && continue
+            echo "Deleting dispatched-run artifact ${ARTIFACT_NAME} (${ARTIFACT_ID})"
+            gh api --method DELETE "/repos/${REPO}/actions/artifacts/${ARTIFACT_ID}"
+          done < run-artifacts.tsv
