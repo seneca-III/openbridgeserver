@@ -12,7 +12,7 @@ ARCH=$(dpkg --print-architecture)
 TEMPLATE_NAME="openbridgeserver"
 TEMPLATE_FILE="${TEMPLATE_NAME}-lxc_${VERSION}_${ARCH}.tar.zst"
 APP_BUNDLE_FILE="${TEMPLATE_NAME}-app-bundle_${VERSION}.tar.gz"
-CACHE_FILE="/cache/base-system-ubuntu-plucky-${ARCH}.tar.zst"
+CACHE_FILE="/cache/base-system-ubuntu-resolute-${ARCH}.tar.zst"
 ROOTFS="/tmp/rootfs"
 
 if [[ "$ARCH" == "arm64" ]]; then
@@ -216,19 +216,24 @@ if [[ "$NO_CACHE" != "true" ]] && [[ -f "$CACHE_FILE" ]]; then
     echo "==> Restoring base system from cache (~/.cache/obs-lxc-builder)..."
     tar --zstd -xf "$CACHE_FILE" -C "$ROOTFS"
 else
-    echo "==> Running debootstrap for plucky/${ARCH} (this may take several minutes)..."
+    echo "==> Running debootstrap for resolute/${ARCH} (this may take several minutes)..."
+    # Ubuntu releases all share the generic 'gutsy' debootstrap script.
+    # The builder image's debootstrap may predate resolute (26.04); symlink it if missing.
+    if [[ ! -e /usr/share/debootstrap/scripts/resolute ]]; then
+        ln -sf gutsy /usr/share/debootstrap/scripts/resolute
+    fi
     debootstrap \
         --arch="$ARCH" \
         --components=main,restricted,universe \
         --include=systemd,systemd-sysv,dbus,apt-utils,locales,iproute2,wget,curl,ca-certificates,less,logrotate,openssh-server,ifupdown \
-        plucky \
+        resolute \
         "$ROOTFS" \
         "$MIRROR"
 
     tee "$ROOTFS/etc/apt/sources.list" > /dev/null << SOURCES
-deb $MIRROR plucky main restricted universe multiverse
-deb $MIRROR plucky-updates main restricted universe multiverse
-deb $SECURITY_MIRROR plucky-security main restricted universe multiverse
+deb $MIRROR resolute main restricted universe multiverse
+deb $MIRROR resolute-updates main restricted universe multiverse
+deb $SECURITY_MIRROR resolute-security main restricted universe multiverse
 SOURCES
 
     chroot "$ROOTFS" /bin/bash << 'BASESCRIPT'

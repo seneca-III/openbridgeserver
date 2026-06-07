@@ -81,7 +81,7 @@ The LXC template contains a complete Ubuntu 26.04 system with **open bridge serv
 **Step 2 — Create the container**
 
 1. In the Proxmox menu, select **Create CT**.
-2. Choose the just-downloaded `ubuntu-plucky-openbridgeserver_…` as the template.
+2. Choose the just-downloaded `openbridgeserver-lxc_…` as the template.
 3. Configure hostname, password, CPU, RAM, and network as needed — recommended: at least 512 MB RAM.
 4. Start the container.
 

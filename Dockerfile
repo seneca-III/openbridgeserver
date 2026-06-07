@@ -2,7 +2,7 @@
 # open bridge server — Multi-Stage Dockerfile (3 stages)
 # Stage 1 (node-builder):   npm install + vite build → gui_dist/ + frontend_dist/
 # Stage 2 (py-builder):     pip install Python deps
-# Stage 3 (runtime):        python:3.11-slim, copies all artefacts
+# Stage 3 (runtime):        python:3.14-slim, copies all artefacts
 #
 # Target: Linux x86_64 and ARM64 (Cortex-A72 / Raspberry Pi 4)
 # ---------------------------------------------------------------------------
