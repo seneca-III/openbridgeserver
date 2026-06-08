@@ -41,7 +41,11 @@ def bypass_ssrf():
     """Deaktiviert SSRF-Blocking für Tests die einen lokalen Mock-Server auf
     127.0.0.1 verwenden. Die SSRF-Tests (12–15) dürfen diese Fixture NICHT nutzen.
     """
-    with unittest.mock.patch.object(_weather_module, "_BLOCKED_NETWORKS", []):
+    with unittest.mock.patch.object(
+        _weather_module,
+        "build_pinned_url_targets",
+        side_effect=lambda url, **_kwargs: ([url], {}, {}),
+    ):
         yield
 
 
@@ -141,15 +145,14 @@ async def test_fetch_invalid_token_is_ignored_for_public_route(client, bypass_ss
         srv.shutdown()
 
 
-async def test_fetch_public_request_uses_private_network_blocking_mode(client, monkeypatch, bypass_ssrf):
+async def test_fetch_public_request_uses_private_network_blocking_mode(client, monkeypatch):
     observed: dict[str, bool] = {}
-    original = _weather_module._check_ssrf
 
-    async def _wrapped_check(url: str, *, allow_private_networks: bool):
+    def _wrapped_build_targets(url: str, *, allow_private_networks: bool, **_kwargs):
         observed["allow_private_networks"] = allow_private_networks
-        await original(url, allow_private_networks=allow_private_networks)
+        return [url], {}, {}
 
-    monkeypatch.setattr(_weather_module, "_check_ssrf", _wrapped_check)
+    monkeypatch.setattr(_weather_module, "build_pinned_url_targets", _wrapped_build_targets)
 
     srv = _MockWeatherServer()
     try:
@@ -160,15 +163,14 @@ async def test_fetch_public_request_uses_private_network_blocking_mode(client, m
         srv.shutdown()
 
 
-async def test_fetch_authenticated_request_allows_private_network_mode(client, auth_headers, monkeypatch, bypass_ssrf):
+async def test_fetch_authenticated_request_allows_private_network_mode(client, auth_headers, monkeypatch):
     observed: dict[str, bool] = {}
-    original = _weather_module._check_ssrf
 
-    async def _wrapped_check(url: str, *, allow_private_networks: bool):
+    def _wrapped_build_targets(url: str, *, allow_private_networks: bool, **_kwargs):
         observed["allow_private_networks"] = allow_private_networks
-        await original(url, allow_private_networks=allow_private_networks)
+        return [url], {}, {}
 
-    monkeypatch.setattr(_weather_module, "_check_ssrf", _wrapped_check)
+    monkeypatch.setattr(_weather_module, "build_pinned_url_targets", _wrapped_build_targets)
 
     srv = _MockWeatherServer()
     try:
@@ -316,7 +318,7 @@ async def test_fetch_ssrf_loopback_ipv4_blocked(client, auth_headers):
         headers=auth_headers,
     )
     assert resp.status_code == 400
-    assert "gesperrt" in resp.json().get("detail", "").lower()
+    assert resp.json()["detail"]["code"] == "url_target_blocked"
 
 
 # 13. Loopback via localhost-Hostname
@@ -326,7 +328,7 @@ async def test_fetch_ssrf_localhost_blocked(client, auth_headers):
         headers=auth_headers,
     )
     assert resp.status_code == 400
-    assert "gesperrt" in resp.json().get("detail", "").lower()
+    assert resp.json()["detail"]["code"] == "url_target_blocked"
 
 
 # 14. Link-local / Cloud-Metadata-Endpunkt (AWS IMDSv1)
@@ -336,7 +338,7 @@ async def test_fetch_ssrf_metadata_ip_blocked(client, auth_headers):
         headers=auth_headers,
     )
     assert resp.status_code == 400
-    assert "gesperrt" in resp.json().get("detail", "").lower()
+    assert resp.json()["detail"]["code"] == "url_target_blocked"
 
 
 # 15. Loopback IPv6
@@ -346,10 +348,10 @@ async def test_fetch_ssrf_loopback_ipv6_blocked(client, auth_headers):
         headers=auth_headers,
     )
     assert resp.status_code == 400
-    assert "gesperrt" in resp.json().get("detail", "").lower()
+    assert resp.json()["detail"]["code"] == "url_target_blocked"
 
 
 async def test_fetch_ssrf_private_network_without_auth_blocked(client):
     resp = await client.get("/api/v1/weather/fetch?url=http://192.168.1.10/weather")
     assert resp.status_code == 400
-    assert "gesperrt" in resp.json().get("detail", "").lower()
+    assert resp.json()["detail"]["code"] == "url_target_blocked"

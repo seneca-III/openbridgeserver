@@ -139,7 +139,7 @@ async def list_backgrounds(_user: str = Depends(get_current_user)) -> Background
 @router.post("/import", response_model=ImportResult)
 async def import_backgrounds(
     files: list[UploadFile] = File(...),
-    _admin: str = Depends(get_admin_user),
+    _user: str = Depends(get_admin_user),
 ) -> ImportResult:
     if not files:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Keine Dateien empfangen")

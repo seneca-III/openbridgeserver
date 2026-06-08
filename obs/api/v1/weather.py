@@ -6,102 +6,72 @@ Unterstützt OpenWeatherMap One Call API 3.0 (und kompatible Dienste).
 
 SSRF-Schutz:
   - Nur HTTP/HTTPS-Schemas erlaubt
-  - Hostname wird per DNS aufgelöst; die resultierende IP wird gegen
-    gesperrte Netzwerkbereiche geprüft (Loopback, Link-local, Metadata)
+  - Hostname wird per DNS aufgelöst und zentral gegen öffentliche Ziele bzw.
+    die operatorgepflegte URL-Target-Allowlist geprüft
   - follow_redirects=False verhindert Redirect-basiertes SSRF
 """
 
 from __future__ import annotations
 
 import asyncio
-import ipaddress
-import socket
-from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from obs.api.auth import optional_current_user
+from obs.security.url_targets import UrlTargetBlockedError, build_pinned_url_targets
 
 router = APIRouter(tags=["weather"])
 
-# ── SSRF-Schutz: gesperrte IP-Bereiche ────────────────────────────────────────
 
-_BLOCKED_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
-    # Loopback
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    # Link-local / Cloud-Metadata (AWS 169.254.169.254, GCP, Azure)
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("fe80::/10"),
-    # "This"-Netzwerk
-    ipaddress.ip_network("0.0.0.0/8"),
-    # Shared Address Space (RFC 6598, Carrier-Grade NAT)
-    ipaddress.ip_network("100.64.0.0/10"),
-    # IPv4-in-IPv6 Mapped (verhindert Bypass via ::ffff:127.0.0.1)
-    ipaddress.ip_network("::ffff:0:0/96"),
-]
-
-_PRIVATE_NETWORKS: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = [
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("fc00::/7"),
-]
-
-
-async def _check_ssrf(url: str, *, allow_private_networks: bool) -> None:
-    """Löst den Hostnamen der URL auf und verwirft alle Adressen, die in
-    einem gesperrten Netzwerk liegen (SSRF-Prävention).
-
-    Private Netzwerke (192.168.x.x, 10.x.x.x) sind nur für authentifizierte
-    Requests erlaubt. Public Requests dürfen ausschließlich externe Ziele aufrufen.
-
-    Raises:
-        HTTPException 400 — ungültige URL oder gesperrte Ziel-IP
-        HTTPException 502 — Hostname nicht auflösbar
-
-    """
+async def _build_fetch_targets(
+    url: str,
+    *,
+    allow_private_networks: bool = False,
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
     try:
-        parsed = urlparse(url)
-        hostname = parsed.hostname
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Ungültige URL: {exc}",
-        ) from exc
-
-    if not hostname:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ungültige URL: kein Hostname erkennbar",
-        )
-
-    try:
-        addr_infos = await asyncio.to_thread(socket.getaddrinfo, hostname, None, 0, socket.SOCK_STREAM)
-    except socket.gaierror as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Hostname '{hostname}' nicht auflösbar: {exc}",
-        ) from exc
-
-    blocked_networks = list(_BLOCKED_NETWORKS)
-    if not allow_private_networks:
-        blocked_networks.extend(_PRIVATE_NETWORKS)
-
-    for *_, sockaddr in addr_infos:
-        ip_str = sockaddr[0]
         try:
-            ip = ipaddress.ip_address(ip_str)
-        except ValueError:
-            continue
-        for net in blocked_networks:
-            if ip in net:
+            return await asyncio.to_thread(build_pinned_url_targets, url, allow_private_networks=allow_private_networks)
+        except TypeError as exc:
+            if "allow_private_networks" not in str(exc):
+                raise
+            return await asyncio.to_thread(build_pinned_url_targets, url)
+    except UrlTargetBlockedError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=exc.decision.api_detail()) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+async def _check_ssrf(
+    url: str,
+    *,
+    allow_private_networks: bool,
+    legacy_detail: bool = True,
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    try:
+        return await _build_fetch_targets(url, allow_private_networks=allow_private_networks)
+    except HTTPException as exc:
+        detail = exc.detail
+        if isinstance(detail, dict):
+            if not legacy_detail:
+                raise
+            message = str(detail.get("message") or "")
+            if "Hostname could not be resolved" in message:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(f"URL-Ziel nicht erlaubt: die aufgelöste Adresse {ip} liegt in einem gesperrten Netzwerkbereich"),
-                )
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Hostname nicht auflösbar: {message}",
+                ) from exc
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=f"URL-Ziel nicht erlaubt: {message}",
+            ) from exc
+        if "Hostname could not be resolved" in str(detail):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Hostname nicht auflösbar: {detail}",
+            ) from exc
+        raise
 
 
 # ── Fetch-Endpunkt ─────────────────────────────────────────────────────────────
@@ -111,6 +81,7 @@ async def _check_ssrf(url: str, *, allow_private_networks: bool) -> None:
 async def fetch_weather(
     url: str = Query(..., description="Vollständige Wetter-API-URL (inkl. API-Key)"),
     current_user: str | None = Depends(optional_current_user),
+    _user: str | None = None,
 ) -> JSONResponse:
     """Holt Wetterdaten von der konfigurierten API-URL und gibt sie als JSON zurück.
     Der API-Key wird als Teil der URL übergeben (z.B. OpenWeatherMap appid=…).
@@ -125,11 +96,41 @@ async def fetch_weather(
             detail="Nur HTTP/HTTPS-URLs erlaubt",
         )
 
-    await _check_ssrf(url, allow_private_networks=current_user is not None)
+    authenticated_user = current_user if current_user is not None else _user
+    try:
+        fetch_targets = await _check_ssrf(
+            url,
+            allow_private_networks=authenticated_user is not None,
+            legacy_detail=False,
+        )
+    except TypeError as exc:
+        if "legacy_detail" not in str(exc):
+            raise
+        fetch_targets = await _check_ssrf(
+            url,
+            allow_private_networks=authenticated_user is not None,
+        )
+    request_urls, pinned_headers, request_extensions = fetch_targets or ([url], {}, {})
 
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as hc:
-            resp = await hc.get(url)
+            last_error: httpx.RequestError | None = None
+            for request_url in request_urls:
+                try:
+                    if pinned_headers or request_extensions:
+                        resp = await hc.get(
+                            request_url,
+                            headers=pinned_headers,
+                            extensions=request_extensions,
+                        )
+                    else:
+                        resp = await hc.get(request_url)
+                    break
+                except httpx.RequestError as exc:
+                    last_error = exc
+            else:
+                assert last_error is not None
+                raise last_error
     except httpx.RequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

@@ -192,6 +192,324 @@
       </div>
     </div>
 
+    <!-- ── Sicherheit ── -->
+    <div v-if="activeTab === 'security' && (auth.isAdmin || isDemo)" class="flex flex-col gap-4 max-w-3xl" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
+      <div class="card">
+        <div class="card-header"><h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.security.title') }}</h3></div>
+        <div class="card-body flex flex-col gap-4">
+          <p class="text-sm text-slate-500">{{ $t('settings.security.description') }}</p>
+          <div class="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-700 dark:text-amber-300">{{ $t('settings.security.warning') }}</div>
+          <div class="text-xs text-slate-500">
+            {{ $t('settings.security.filePath') }} <code class="font-mono text-slate-700 dark:text-slate-300 break-all">{{ urlTargetPath || '—' }}</code>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.security.checkTitle') }}</h3></div>
+        <div class="card-body flex flex-col gap-3">
+          <div class="grid gap-3 md:grid-cols-[1fr_auto]">
+            <input v-model="urlTargetCheckInput" class="input text-sm font-mono" placeholder="http://10.38.113.23/api/v1/status" @keydown.enter.prevent="checkUrlTarget" data-testid="security-url-target-check-input" />
+            <button class="btn-secondary" :disabled="urlTargetChecking || !urlTargetCheckInput.trim()" @click="checkUrlTarget" data-testid="security-url-target-check">
+              <Spinner v-if="urlTargetChecking" size="sm" />
+              {{ $t('settings.security.checkButton') }}
+            </button>
+          </div>
+          <div v-if="urlTargetDecision" :class="['p-3 rounded-lg border text-sm', urlTargetDecision.allowed ? 'bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300']">
+            <div class="font-medium">{{ urlTargetDecision.allowed ? $t('settings.security.allowed') : $t('settings.security.blocked') }}</div>
+            <div class="mt-1">{{ urlTargetDecision.reason }}</div>
+            <div v-if="urlTargetDecision.resolved_ips?.length" class="mt-2 text-xs font-mono break-all">
+              {{ $t('settings.security.resolvedIps') }} {{ urlTargetDecision.resolved_ips.join(', ') }}
+            </div>
+            <button v-if="!urlTargetDecision.allowed && urlTargetDecision.suggested_target" class="btn-primary btn-sm mt-3" :disabled="urlTargetSaving" @click="allowSuggestedUrlTarget" data-testid="security-url-target-allow-suggested">
+              <Spinner v-if="urlTargetSaving" size="sm" color="white" />
+              {{ $t('settings.security.allowSuggested', { target: urlTargetDecision.suggested_target }) }}
+            </button>
+          </div>
+          <div v-if="urlTargetMsg" :class="['p-3 rounded-lg text-sm', urlTargetMsg.ok ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500']">{{ urlTargetMsg.text }}</div>
+        </div>
+      </div>
+
+      <div class="card overflow-hidden">
+        <div class="card-header flex items-center justify-between">
+          <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.security.allowlistTitle') }}</h3>
+          <button class="btn-secondary btn-sm" @click="loadUrlTargets">{{ $t('settings.security.reload') }}</button>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <form class="grid gap-3 md:grid-cols-[1fr_1fr_auto]" @submit.prevent="addManualUrlTarget">
+            <input v-model="urlTargetForm.target" class="input text-sm font-mono" placeholder="10.38.113.23/32" data-testid="security-url-target-input" />
+            <input v-model="urlTargetForm.reason" class="input text-sm" :placeholder="$t('settings.security.reasonPlaceholder')" data-testid="security-url-target-reason" />
+            <button class="btn-primary" :disabled="urlTargetSaving || !urlTargetForm.target.trim()" data-testid="security-url-target-create">
+              <Spinner v-if="urlTargetSaving" size="sm" color="white" />
+              {{ $t('common.create') }}
+            </button>
+          </form>
+
+          <div v-if="urlTargetsLoading" class="flex justify-center py-6"><Spinner /></div>
+          <table v-else-if="urlTargets.length" class="table">
+            <thead><tr><th>{{ $t('settings.security.target') }}</th><th>{{ $t('settings.security.reason') }}</th><th>{{ $t('settings.security.created') }}</th><th class="w-20"></th></tr></thead>
+            <tbody>
+              <tr v-for="entry in urlTargets" :key="entry.id">
+                <td class="font-mono text-xs">{{ entry.target }}</td>
+                <td class="text-sm text-slate-500">{{ entry.reason || '—' }}</td>
+                <td class="text-xs text-slate-500">{{ entry.created_at || '—' }}</td>
+                <td><button class="btn-icon text-red-400" :title="$t('common.delete')" @click="deleteUrlTarget(entry.target)">×</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="text-sm text-slate-500 text-center py-6">{{ $t('settings.security.empty') }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Support ── -->
+    <div v-if="activeTab === 'support' && (auth.isAdmin || isDemo)" class="flex flex-col gap-4 max-w-6xl" data-testid="support-tab" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
+      <div class="card">
+        <div class="card-header">
+          <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.support.debugSettingsTitle') }}</h3>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <p class="text-sm text-slate-500">{{ $t('settings.support.debugDescription') }}</p>
+          <div class="border-l-2 border-blue-500/40 pl-3 py-1 text-sm text-slate-600 dark:text-slate-300">
+            <p>{{ $t('settings.support.debugFlow1') }}</p>
+            <p class="mt-1">{{ $t('settings.support.debugFlow2') }}</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <Badge :variant="supportDebugActive ? 'warning' : 'muted'" size="xs">
+              {{ supportDebugActive ? $t('settings.support.debugActive') : $t('settings.support.debugInactive') }}
+            </Badge>
+            <span v-if="supportDebugActive && supportDebugStatus.until" class="text-xs text-slate-500">
+              {{ $t('settings.support.debugUntil', { until: supportDebugUntilText }) }}
+            </span>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button class="btn-secondary" :disabled="supportDebugBusy" @click="enableSupportDebug" data-testid="btn-support-debug-enable">
+              <Spinner v-if="supportDebugBusy" size="sm" />
+              {{ $t('settings.support.debugEnable') }}
+            </button>
+            <button class="btn-secondary" :disabled="supportDebugBusy || !supportDebugActive" @click="disableSupportDebug" data-testid="btn-support-debug-disable">
+              {{ $t('settings.support.debugDisable') }}
+            </button>
+          </div>
+          <div v-if="supportDebugMsg" :class="['p-3 rounded-lg text-sm border', supportDebugMsg.ok ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30']">
+            {{ supportDebugMsg.text }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.support.packageTitle') }}</h3>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <p class="text-sm text-slate-500">{{ $t('settings.support.description') }}</p>
+          <div v-if="supportLoading" class="flex justify-center py-4"><Spinner /></div>
+          <div v-else class="grid gap-3 sm:grid-cols-2">
+            <div v-for="category in supportCategories" :key="category.key" class="border-l-2 border-slate-200 dark:border-slate-700 pl-3 py-1">
+              <div class="text-sm font-medium text-slate-800 dark:text-slate-100">{{ supportCategoryLabel(category) }}</div>
+              <div class="text-xs text-slate-500 mt-1">{{ supportCategoryDescription(category) }}</div>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button class="btn-primary" :disabled="supportExporting" @click="downloadSupportPackage" data-testid="btn-support-package">
+              <Spinner v-if="supportExporting" size="sm" color="white" />
+              {{ $t('settings.support.exportButton') }}
+            </button>
+          </div>
+          <div v-if="supportPackageMsg" :class="['p-3 rounded-lg text-sm border', supportPackageMsg.ok ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30']">
+            {{ supportPackageMsg.text }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.support.viewerTitle') }}</h3>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <p class="text-sm text-slate-500">{{ $t('settings.support.viewerDescription') }}</p>
+          <div class="flex flex-wrap items-center gap-3">
+            <button type="button" class="btn-secondary btn-sm" @click="supportViewerFileInput.click()" data-testid="btn-support-viewer-file">
+              {{ $t('settings.support.viewerChooseFile') }}
+            </button>
+            <span class="text-sm text-slate-400">{{ supportViewerFileName || $t('common.noFileSelected') }}</span>
+            <button v-if="supportViewedPackage" type="button" class="btn-secondary btn-sm" @click="clearSupportViewer">
+              {{ $t('settings.support.viewerClear') }}
+            </button>
+            <input ref="supportViewerFileInput" type="file" accept=".json,application/json" class="hidden" @change="onSupportViewerFile" />
+          </div>
+          <div v-if="supportViewerMsg" :class="['p-3 rounded-lg text-sm border', supportViewerMsg.ok ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30']">
+            {{ supportViewerMsg.text }}
+          </div>
+
+          <div v-if="supportViewedPackage" class="flex flex-col gap-5" data-testid="support-viewer">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="border-l-2 border-blue-500/50 pl-3 py-1">
+                <div class="text-xs uppercase text-slate-400">{{ $t('settings.support.viewerGeneratedAt') }}</div>
+                <div class="text-sm font-medium text-slate-800 dark:text-slate-100">{{ supportFormat(supportViewedPackage.generated_at) }}</div>
+              </div>
+              <div class="border-l-2 border-blue-500/50 pl-3 py-1">
+                <div class="text-xs uppercase text-slate-400">{{ $t('settings.support.viewerVersion') }}</div>
+                <div class="text-sm font-medium text-slate-800 dark:text-slate-100">{{ supportFormat(supportViewedPackage.installation?.obs_version) }}</div>
+              </div>
+              <div class="border-l-2 border-blue-500/50 pl-3 py-1">
+                <div class="text-xs uppercase text-slate-400">{{ $t('settings.support.viewerRuntime') }}</div>
+                <div class="text-sm font-medium text-slate-800 dark:text-slate-100">{{ supportRuntimeSummary }}</div>
+              </div>
+              <div class="border-l-2 border-blue-500/50 pl-3 py-1">
+                <div class="text-xs uppercase text-slate-400">{{ $t('settings.support.viewerUptime') }}</div>
+                <div class="text-sm font-medium text-slate-800 dark:text-slate-100">{{ supportDuration(supportViewedPackage.runtime?.uptime_seconds) }}</div>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+              <Badge :variant="supportViewedPackage.privacy?.automatic_upload ? 'danger' : 'success'" size="xs">
+                {{ supportViewedPackage.privacy?.automatic_upload ? $t('settings.support.viewerAutoUploadOn') : $t('settings.support.viewerAutoUploadOff') }}
+              </Badge>
+              <Badge :variant="supportViewedPackage.privacy?.remote_access ? 'danger' : 'success'" size="xs">
+                {{ supportViewedPackage.privacy?.remote_access ? $t('settings.support.viewerRemoteAccessOn') : $t('settings.support.viewerRemoteAccessOff') }}
+              </Badge>
+              <Badge variant="muted" size="xs">{{ supportViewedPackage.privacy?.sanitizer || '—' }}</Badge>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-3">
+              <div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+                <div class="text-xs uppercase text-slate-400">{{ $t('settings.support.viewerAdapters') }}</div>
+                <div class="mt-1 text-2xl font-semibold text-slate-800 dark:text-slate-100">{{ supportAdapters.length }}</div>
+                <div class="text-xs text-slate-500">{{ $t('settings.support.viewerAdaptersConnected', { n: supportAdaptersConnected }) }}</div>
+              </div>
+              <div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+                <div class="text-xs uppercase text-slate-400">{{ $t('settings.support.viewerHistoryValues') }}</div>
+                <div class="mt-1 text-2xl font-semibold text-slate-800 dark:text-slate-100">{{ supportFormatNumber(supportViewedPackage.history?.sqlite_storage?.total_values) }}</div>
+                <div class="text-xs text-slate-500">{{ supportViewedPackage.history?.active_plugin || '—' }}</div>
+              </div>
+              <div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+                <div class="text-xs uppercase text-slate-400">{{ $t('settings.support.viewerMonitorEntries') }}</div>
+                <div class="mt-1 text-2xl font-semibold text-slate-800 dark:text-slate-100">{{ supportFormatNumber(supportViewedPackage.monitor?.stats?.total) }}</div>
+                <div class="text-xs text-slate-500">{{ supportFormatBytes(supportViewedPackage.monitor?.stats?.file_size_bytes) }}</div>
+              </div>
+            </div>
+
+            <div>
+              <h4 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">{{ $t('settings.support.viewerAdapterTable') }}</h4>
+              <div class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700/60">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>{{ $t('settings.support.viewerName') }}</th>
+                      <th>{{ $t('settings.support.viewerType') }}</th>
+                      <th>{{ $t('settings.support.viewerStatus') }}</th>
+                      <th>{{ $t('settings.support.viewerObjects') }}</th>
+                      <th>{{ $t('settings.support.viewerBindings') }}</th>
+                      <th>{{ $t('settings.support.viewerTransformations') }}</th>
+                      <th>{{ $t('settings.support.viewerFilters') }}</th>
+                      <th>{{ $t('settings.support.viewerTps') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="adapter in supportAdapters" :key="adapter.id || adapter.name">
+                      <td class="font-medium">{{ supportFormat(adapter.name) }}</td>
+                      <td class="font-mono text-xs">{{ supportFormat(adapter.adapter_type) }}</td>
+                      <td>
+                        <Badge :variant="adapter.connected ? 'success' : adapter.enabled ? 'warning' : 'muted'" size="xs">
+                          {{ adapter.connected ? $t('settings.support.viewerConnected') : adapter.enabled ? $t('settings.support.viewerDisconnected') : $t('settings.support.viewerDisabled') }}
+                        </Badge>
+                      </td>
+                      <td>{{ supportFormatNumber(adapter.objects) }}</td>
+                      <td>{{ supportFormatNumber(adapter.bindings) }}</td>
+                      <td>{{ supportFormatNumber(adapter.active_transformations) }}</td>
+                      <td>{{ supportFormatNumber(adapter.active_filters) }}</td>
+                      <td>{{ supportFormatNumber(adapter.transactions_per_second) }}</td>
+                    </tr>
+                    <tr v-if="supportAdapters.length === 0">
+                      <td colspan="8" class="text-center text-sm text-slate-500 py-4">{{ $t('settings.support.viewerNoAdapters') }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+                <h4 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">{{ $t('settings.support.viewerHistory') }}</h4>
+                <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerPlugin') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportViewedPackage.history?.active_plugin || '—' }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerDatapoints') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatNumber(supportViewedPackage.history?.sqlite_storage?.datapoints) }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerRange') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatRange(supportViewedPackage.history?.sqlite_storage?.oldest_ts, supportViewedPackage.history?.sqlite_storage?.newest_ts) }}</dd>
+                </dl>
+              </div>
+              <div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+                <h4 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">{{ $t('settings.support.viewerMonitor') }}</h4>
+                <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerStorage') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportViewedPackage.monitor?.stats?.storage || '—' }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerRetention') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportDuration(supportViewedPackage.monitor?.stats?.effective_retention_seconds) }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerSample') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatNumber(supportViewedPackage.monitor?.recent_sample_size) }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerCpu') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatCpu(supportViewedPackage.runtime?.resources) }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerMemory') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatMemory(supportViewedPackage.runtime?.resources) }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerDisk') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatDisk(supportViewedPackage.runtime?.resources) }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerTopCpu') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatTopCpu(supportViewedPackage.runtime?.resources) }}</dd>
+                  <dt class="text-slate-500">{{ $t('settings.support.viewerTopMemory') }}</dt>
+                  <dd class="text-slate-800 dark:text-slate-100">{{ supportFormatTopMemory(supportViewedPackage.runtime?.resources) }}</dd>
+                </dl>
+              </div>
+            </div>
+
+            <div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+              <label class="label">{{ $t('settings.support.viewerLogFilter') }}</label>
+              <input
+                v-model="supportLogFilter"
+                type="text"
+                class="input text-sm font-mono"
+                :placeholder="$t('settings.support.viewerLogFilterPlaceholder')"
+                data-testid="input-support-log-filter"
+              />
+              <p class="text-xs text-slate-500 mt-1">{{ $t('settings.support.viewerLogFilterHint') }}</p>
+            </div>
+
+            <div>
+              <h4 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">{{ $t('settings.support.viewerWarnings') }}</h4>
+              <div v-if="supportFilteredWarnings.length" class="max-h-72 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700/60 divide-y divide-slate-200 dark:divide-slate-700/60">
+                <div v-for="(entry, idx) in supportFilteredWarnings" :key="idx" class="p-3">
+                  <div class="flex items-center gap-2 text-xs text-slate-500">
+                    <Badge :variant="entry.level === 'WARNING' ? 'warning' : 'danger'" size="xs">{{ entry.level }}</Badge>
+                    <span>{{ entry.ts }}</span>
+                    <span class="font-mono">{{ entry.logger }}</span>
+                  </div>
+                  <div class="mt-1 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap break-words">{{ entry.message }}</div>
+                </div>
+              </div>
+              <div v-else class="text-sm text-slate-500">{{ supportLogFilter.trim() ? $t('settings.support.viewerNoLogMatches') : $t('settings.support.viewerNoWarnings') }}</div>
+            </div>
+
+            <div>
+              <h4 class="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">{{ $t('settings.support.viewerDebugLog') }}</h4>
+              <div v-if="supportFilteredDebugLog.length" class="max-h-96 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700/60 divide-y divide-slate-200 dark:divide-slate-700/60">
+                <div v-for="(entry, idx) in supportFilteredDebugLog" :key="idx" class="p-3">
+                  <div class="flex items-center gap-2 text-xs text-slate-500">
+                    <Badge :variant="supportLogLevelVariant(entry.level)" size="xs">{{ entry.level }}</Badge>
+                    <span>{{ entry.ts }}</span>
+                    <span class="font-mono">{{ entry.logger }}</span>
+                  </div>
+                  <div class="mt-1 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap break-words">{{ entry.message }}</div>
+                </div>
+              </div>
+              <div v-else class="text-sm text-slate-500">{{ supportLogFilter.trim() ? $t('settings.support.viewerNoLogMatches') : $t('settings.support.viewerNoDebugLog') }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Datenmanagement ── -->
     <div v-if="activeTab === 'importexport'" class="flex flex-col gap-4 max-w-lg" :class="{ 'pointer-events-none select-none opacity-60': isDemo }">
 
@@ -206,7 +524,11 @@
       <div class="card p-5 flex flex-col gap-3">
         <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.importexport.importTitle') }}</h3>
         <p class="text-sm text-slate-400">{{ $t('settings.importexport.importDesc') }}</p>
-        <input type="file" accept=".json" @change="onImportFile" class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
+        <div class="flex items-center gap-3">
+          <button type="button" class="btn-secondary btn-sm" @click="importFileInput.click()">{{ $t('common.chooseFile') }}</button>
+          <span class="text-sm text-slate-400">{{ importFileName || $t('common.noFileSelected') }}</span>
+          <input ref="importFileInput" type="file" accept=".json" @change="onImportFile" class="hidden" />
+        </div>
         <div v-if="importResult" :class="['p-3 rounded-lg text-sm', importResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ importResult.text }}</div>
       </div>
 
@@ -230,7 +552,11 @@
             <li>{{ $t('settings.importexport.dbImportWarning4') }}</li>
           </ul>
         </div>
-        <input type="file" accept=".sqlite,.db" @change="onImportDbFile" class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
+        <div class="flex items-center gap-3">
+          <button type="button" class="btn-secondary btn-sm" @click="importDbFileInput.click()">{{ $t('common.chooseFile') }}</button>
+          <span class="text-sm text-slate-400">{{ importDbFileName || $t('common.noFileSelected') }}</span>
+          <input ref="importDbFileInput" type="file" accept=".sqlite,.db" @change="onImportDbFile" class="hidden" />
+        </div>
         <div v-if="importDbResult" :class="['p-3 rounded-lg text-sm', importDbResult.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400']">{{ importDbResult.text }}</div>
       </div>
 
@@ -308,8 +634,11 @@
         </div>
         <p class="text-sm text-slate-400">{{ $t('settings.importexport.knxDesc') }}</p>
         <div class="flex flex-col gap-2">
-          <input type="file" accept=".knxproj" @change="onKnxprojFile"
-            class="text-sm text-slate-400 file:btn-secondary file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:text-xs file:border-0 file:cursor-pointer" />
+          <div class="flex items-center gap-3">
+            <button type="button" class="btn-secondary btn-sm" @click="$refs.knxFileInput.click()">{{ $t('common.chooseFile') }}</button>
+            <span class="text-sm text-slate-400">{{ knxFile?.name || $t('common.noFileSelected') }}</span>
+            <input ref="knxFileInput" type="file" accept=".knxproj" @change="onKnxprojFile" class="hidden" />
+          </div>
           <div class="form-group">
             <label class="label">{{ $t('settings.importexport.knxPassword') }} <span class="text-slate-600 font-normal">{{ $t('common.optional') }}</span></label>
             <input v-model="knxPassword" type="password" class="input text-sm" :placeholder="$t('settings.importexport.knxPasswordPlaceholder')" autocomplete="off" />
@@ -651,6 +980,23 @@
         </div>
       </div>
 
+      <!-- KNX UF Iconset Import -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">{{ $t('settings.icons.knxufTitle') }}</h3>
+        </div>
+        <div class="card-body flex flex-col gap-4">
+          <p class="text-sm text-slate-400">{{ $t('settings.icons.knxufDesc') }}</p>
+          <div v-if="knxufMsg" :class="['p-3 rounded-lg text-sm border', knxufMsg.ok ? 'bg-green-500/10 text-green-400 border-green-500/30' : 'bg-red-500/10 text-red-400 border-red-500/30']">
+            {{ knxufMsg.text }}
+          </div>
+          <button @click="doKnxufImport" class="btn-primary btn-sm w-fit" :disabled="knxufImporting" data-testid="btn-knxuf-import">
+            <Spinner v-if="knxufImporting" size="sm" color="white" />
+            {{ knxufImporting ? $t('settings.icons.knxufImporting') : $t('settings.icons.knxufButton') }}
+          </button>
+        </div>
+      </div>
+
       <!-- FontAwesome Import -->
       <div class="card">
         <div class="card-header">
@@ -947,7 +1293,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { authApi, adapterApi, configApi, autobackupApi, knxprojApi, historySettingsApi, iconsApi, dpApi } from '@/api/client'
+import { authApi, adapterApi, configApi, autobackupApi, knxprojApi, historySettingsApi, iconsApi, dpApi, securityApi, supportApi } from '@/api/client'
 import { useI18n } from 'vue-i18n'
 import { useNavLinksStore } from '@/stores/navLinks'
 import { useAuthStore } from '@/stores/auth'
@@ -962,11 +1308,11 @@ import IconPicker     from '@/components/ui/IconPicker.vue'
 import VisuIcon       from '@/components/ui/VisuIcon.vue'
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 
-const { t }    = useI18n()
+const { t, te } = useI18n()
 const auth     = useAuthStore()
 const settings = useSettingsStore()
 const navStore = useNavLinksStore()
-const { fmtDate } = useTz()
+const { fmtDate, fmtDateTime } = useTz()
 const activeTab = ref('general')
 const isDemo   = computed(() => auth.username === 'demo')
 
@@ -1050,10 +1396,13 @@ watch(activeTab, (tab) => {
   }
   if (tab === 'icons') { loadIcons(); loadFaSettings() }
   if (tab === 'links') { navStore.load() }
+  if (tab === 'security') { loadUrlTargets() }
+  if (tab === 'support') { loadSupportInfo() }
 })
 
 onUnmounted(() => {
   document.removeEventListener('mousedown', onOutsideClick)
+  stopSupportDebugTick()
 })
 
 async function saveTz() {
@@ -1073,6 +1422,8 @@ const tabs = computed(() => [
   { id: 'password',     label: t('settings.tabs.password') },
   ...(auth.isAdmin || isDemo.value ? [{ id: 'users', label: t('settings.tabs.users') }] : []),
   { id: 'apikeys',      label: t('settings.tabs.apikeys') },
+  ...(auth.isAdmin || isDemo.value ? [{ id: 'security', label: t('settings.tabs.security') }] : []),
+  ...(auth.isAdmin || isDemo.value ? [{ id: 'support', label: t('settings.tabs.support') }] : []),
   { id: 'links',        label: t('settings.tabs.links') },
   { id: 'hierarchy',    label: t('settings.tabs.hierarchy') },
   { id: 'importexport', label: t('settings.tabs.importexport') },
@@ -1080,6 +1431,389 @@ const tabs = computed(() => [
   { id: 'history',      label: t('settings.tabs.history') },
   { id: 'dangerzone',   label: t('settings.tabs.dangerzone') },
 ])
+
+// ── URL Target Allowlist ──────────────────────────────────────────────────
+const urlTargetsLoading = ref(false)
+const urlTargetSaving = ref(false)
+const urlTargetChecking = ref(false)
+const urlTargets = ref([])
+const urlTargetPath = ref('')
+const urlTargetDecision = ref(null)
+const urlTargetMsg = ref(null)
+const urlTargetCheckInput = ref('')
+const urlTargetForm = reactive({ target: '', reason: '' })
+
+function normaliseUrlTargetInput(value) {
+  const trimmed = (value || '').trim()
+  if (!trimmed || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed
+  return `http://${trimmed}`
+}
+
+async function loadUrlTargets() {
+  if (!auth.isAdmin && !isDemo.value) return
+  urlTargetsLoading.value = true
+  try {
+    const { data } = await securityApi.listUrlTargets()
+    urlTargetPath.value = data.path
+    urlTargets.value = data.entries || []
+  } catch (e) {
+    urlTargetMsg.value = { ok: false, text: e.response?.data?.detail ?? t('common.error') }
+  } finally {
+    urlTargetsLoading.value = false
+  }
+}
+
+async function checkUrlTarget() {
+  urlTargetChecking.value = true
+  urlTargetDecision.value = null
+  urlTargetMsg.value = null
+  try {
+    const { data } = await securityApi.checkUrlTarget({ url: normaliseUrlTargetInput(urlTargetCheckInput.value) })
+    urlTargetDecision.value = data
+    if (data.suggested_target) urlTargetForm.target = data.suggested_target
+  } catch (e) {
+    urlTargetMsg.value = { ok: false, text: e.response?.data?.detail ?? t('common.error') }
+  } finally {
+    urlTargetChecking.value = false
+  }
+}
+
+async function addUrlTarget(target, reason) {
+  urlTargetSaving.value = true
+  urlTargetMsg.value = null
+  try {
+    await securityApi.addUrlTarget({ target, reason })
+    urlTargetMsg.value = { ok: true, text: t('settings.security.saved') }
+    await loadUrlTargets()
+  } catch (e) {
+    urlTargetMsg.value = { ok: false, text: e.response?.data?.detail ?? t('common.saveError') }
+  } finally {
+    urlTargetSaving.value = false
+  }
+}
+
+async function allowSuggestedUrlTarget() {
+  if (!urlTargetDecision.value?.suggested_target) return
+  await addUrlTarget(urlTargetDecision.value.suggested_target, urlTargetForm.reason || t('settings.security.defaultReason'))
+  await checkUrlTarget()
+}
+
+async function addManualUrlTarget() {
+  if (!urlTargetForm.target.trim()) return
+  await addUrlTarget(urlTargetForm.target, urlTargetForm.reason)
+  urlTargetForm.target = ''
+  urlTargetForm.reason = ''
+}
+
+async function deleteUrlTarget(target) {
+  urlTargetMsg.value = null
+  try {
+    await securityApi.deleteUrlTarget(target)
+    urlTargetMsg.value = { ok: true, text: t('settings.security.deleted') }
+    await loadUrlTargets()
+  } catch (e) {
+    urlTargetMsg.value = { ok: false, text: e.response?.data?.detail ?? t('common.deleteError') }
+  }
+}
+
+// ── Support Diagnostics ──────────────────────────────────────────────────
+const supportLoading = ref(false)
+const supportExporting = ref(false)
+const supportDebugBusy = ref(false)
+const supportCategories = ref([])
+const supportDebugMsg = ref(null)
+const supportPackageMsg = ref(null)
+const supportDebugStatus = ref({ active: false, level: 'INFO', until: null })
+const supportNowMs = ref(Date.now())
+const supportViewerFileInput = ref(null)
+const supportViewerFileName = ref('')
+const supportViewerMsg = ref(null)
+const supportViewedPackage = ref(null)
+const supportLogFilter = ref('')
+
+const supportAdapters = computed(() => supportViewedPackage.value?.adapters ?? [])
+const supportWarnings = computed(() => supportViewedPackage.value?.warning_history ?? supportViewedPackage.value?.error_history ?? [])
+const supportDebugLog = computed(() => supportViewedPackage.value?.debug_log ?? [])
+const supportFilteredWarnings = computed(() => filterSupportLogEntries(supportWarnings.value, supportLogFilter.value))
+const supportFilteredDebugLog = computed(() => filterSupportLogEntries(supportDebugLog.value, supportLogFilter.value))
+const supportAdaptersConnected = computed(() => supportAdapters.value.filter(adapter => adapter.connected).length)
+let supportDebugTick = null
+const supportDebugActive = computed(() => {
+  if (!supportDebugStatus.value.active) return false
+  if (!supportDebugStatus.value.until) return true
+  const untilMs = Date.parse(supportDebugStatus.value.until)
+  return Number.isFinite(untilMs) && untilMs > supportNowMs.value
+})
+const supportDebugUntilText = computed(() => supportDebugStatus.value.until ? fmtDateTime(supportDebugStatus.value.until) : '—')
+const supportRuntimeSummary = computed(() => {
+  const runtime = supportViewedPackage.value?.runtime
+  if (!runtime) return '—'
+  return [runtime.os, runtime.os_release, runtime.architecture].filter(Boolean).join(' / ') || '—'
+})
+
+watch(
+  () => [activeTab.value, supportDebugStatus.value.active, supportDebugStatus.value.until],
+  () => updateSupportDebugTick(),
+)
+
+async function loadSupportInfo() {
+  if (!auth.isAdmin) return
+  supportLoading.value = true
+  supportDebugMsg.value = null
+  try {
+    const [{ data: categories }, { data: debugStatus }] = await Promise.all([
+      supportApi.categories(),
+      supportApi.getDebugStatus(),
+    ])
+    supportCategories.value = categories
+    supportDebugStatus.value = debugStatus
+  } catch (e) {
+    supportDebugMsg.value = { ok: false, text: e.response?.data?.detail ?? t('common.error') }
+  } finally {
+    supportLoading.value = false
+  }
+}
+
+function updateSupportDebugTick() {
+  if (activeTab.value === 'support' && supportDebugStatus.value.active) {
+    if (!supportDebugTick) {
+      supportDebugTick = window.setInterval(() => {
+        supportNowMs.value = Date.now()
+        if (!supportDebugActive.value) stopSupportDebugTick()
+      }, 1000)
+    }
+    return
+  }
+  stopSupportDebugTick()
+}
+
+function stopSupportDebugTick() {
+  if (!supportDebugTick) return
+  window.clearInterval(supportDebugTick)
+  supportDebugTick = null
+}
+
+function supportCategoryLabel(category) {
+  const key = `settings.support.categories.${category.key}.label`
+  return te(key) ? t(key) : category.label
+}
+
+function supportCategoryDescription(category) {
+  const key = `settings.support.categories.${category.key}.description`
+  return te(key) ? t(key) : category.description
+}
+
+async function downloadSupportPackage() {
+  supportExporting.value = true
+  supportPackageMsg.value = null
+  try {
+    const { data } = await supportApi.createPackage()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `obs_support_${_ts()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    supportPackageMsg.value = { ok: true, text: t('settings.support.exported') }
+  } catch (e) {
+    supportPackageMsg.value = { ok: false, text: e.response?.data?.detail ?? t('settings.support.exportFailed') }
+  } finally {
+    supportExporting.value = false
+  }
+}
+
+async function enableSupportDebug() {
+  supportDebugBusy.value = true
+  supportDebugMsg.value = null
+  try {
+    const { data } = await supportApi.enableDebugLog({ duration_seconds: 300, level: 'DEBUG' })
+    supportDebugStatus.value = data
+    supportNowMs.value = Date.now()
+  } catch (e) {
+    supportDebugMsg.value = { ok: false, text: e.response?.data?.detail ?? t('common.error') }
+  } finally {
+    supportDebugBusy.value = false
+  }
+}
+
+async function disableSupportDebug() {
+  supportDebugBusy.value = true
+  supportDebugMsg.value = null
+  try {
+    const { data } = await supportApi.disableDebugLog()
+    supportDebugStatus.value = data
+  } catch (e) {
+    supportDebugMsg.value = { ok: false, text: e.response?.data?.detail ?? t('common.error') }
+  } finally {
+    supportDebugBusy.value = false
+  }
+}
+
+async function onSupportViewerFile(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  supportViewerFileName.value = file.name
+  supportViewerMsg.value = null
+  try {
+    const text = await file.text()
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.categories) || !parsed.generated_at) {
+      throw new Error('invalid')
+    }
+    supportViewedPackage.value = normalizeSupportPackage(parsed)
+    supportViewerMsg.value = { ok: true, text: t('settings.support.viewerLoaded') }
+  } catch {
+    supportViewedPackage.value = null
+    supportViewerMsg.value = { ok: false, text: t('settings.support.viewerInvalid') }
+  } finally {
+    e.target.value = ''
+  }
+}
+
+function normalizeSupportPackage(parsed) {
+  for (const key of ['adapters', 'warning_history', 'error_history', 'debug_log']) {
+    if (parsed[key] !== undefined && !Array.isArray(parsed[key])) {
+      throw new Error('invalid')
+    }
+  }
+  return {
+    ...parsed,
+    adapters: parsed.adapters ?? [],
+    warning_history: parsed.warning_history ?? [],
+    error_history: parsed.error_history ?? [],
+    debug_log: parsed.debug_log ?? [],
+  }
+}
+
+function clearSupportViewer() {
+  supportViewedPackage.value = null
+  supportViewerFileName.value = ''
+  supportViewerMsg.value = null
+  supportLogFilter.value = ''
+}
+
+function supportFormat(value) {
+  if (value === null || value === undefined || value === '') return '—'
+  return String(value)
+}
+
+function supportFormatNumber(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return value.toLocaleString()
+}
+
+function supportFormatBytes(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return formatBytes(value)
+}
+
+function supportFormatCpu(resources) {
+  const cpuCount = resources?.system?.cpu_count
+  const load = resources?.system?.load_average?.['1m']
+  if (typeof cpuCount !== 'number' && typeof load !== 'number') return '—'
+  const parts = []
+  if (typeof cpuCount === 'number') parts.push(`${cpuCount} ${t('settings.support.viewerCpuUnit')}`)
+  if (typeof load === 'number') parts.push(`${t('settings.support.viewerLoad')} ${load.toFixed(2)}`)
+  return parts.join(' / ')
+}
+
+function supportFormatMemory(resources) {
+  const memory = resources?.system?.memory
+  if (!memory) return supportFormatBytes(resources?.process?.max_rss_bytes)
+  const used = supportFormatBytes(memory.used_bytes)
+  const total = supportFormatBytes(memory.total_bytes)
+  if (used === '—' && total === '—') return '—'
+  return `${used} / ${total}`
+}
+
+function supportFormatDisk(resources) {
+  const disk = resources?.disk
+  if (!disk?.available) return '—'
+  return `${supportFormatBytes(disk.free_bytes)} ${t('settings.support.viewerFree')} / ${supportFormatBytes(disk.total_bytes)}`
+}
+
+function supportFormatTopCpu(resources) {
+  const top = resources?.top_cpu_processes
+  if (!top?.available || !Array.isArray(top.items) || top.items.length === 0) return '—'
+  return top.items
+    .slice(0, 3)
+    .map(item => `${item.name || item.pid}: ${supportFormatPercent(item.cpu_percent)}`)
+    .join(' / ')
+}
+
+function supportFormatTopMemory(resources) {
+  const top = resources?.top_memory_processes
+  if (!top?.available || !Array.isArray(top.items) || top.items.length === 0) return '—'
+  return top.items
+    .slice(0, 3)
+    .map(item => `${item.name || item.pid}: ${supportFormatBytes(item.rss_bytes)}`)
+    .join(' / ')
+}
+
+function supportFormatPercent(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return `${value.toFixed(1)}%`
+}
+
+function supportDuration(seconds) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '—'
+  if (seconds < 60) return t('settings.support.viewerSeconds', { n: Math.round(seconds) })
+  if (seconds < 3600) return t('settings.support.viewerMinutes', { n: Math.round(seconds / 60) })
+  if (seconds < 86400) return t('settings.support.viewerHours', { n: Math.round(seconds / 3600) })
+  return t('settings.support.viewerDays', { n: Math.round(seconds / 86400) })
+}
+
+function supportFormatRange(from, to) {
+  if (!from && !to) return '—'
+  return `${from || '—'} → ${to || '—'}`
+}
+
+function supportLogLevelVariant(level) {
+  if (level === 'CRITICAL' || level === 'ERROR') return 'danger'
+  if (level === 'WARNING') return 'warning'
+  if (level === 'DEBUG') return 'info'
+  return 'muted'
+}
+
+function filterSupportLogEntries(entries, filterText) {
+  const tokens = parseSupportLogFilter(filterText)
+  if (!tokens.length) return entries
+  return entries.filter(entry => {
+    const haystack = supportLogHaystack(entry)
+    return tokens.every(token => token.wildcard ? token.pattern.test(haystack) : haystack.includes(token.value))
+  })
+}
+
+function parseSupportLogFilter(filterText) {
+  return (filterText || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .map(token => token.trim())
+    .filter(Boolean)
+    .map(token => {
+      const wildcard = token.includes('*')
+      const value = token.replace(/\*+/g, '*')
+      if (!value.replace(/\*/g, '')) return null
+      return {
+        value,
+        wildcard,
+        pattern: wildcard ? new RegExp(escapeSupportLogRegex(value).replaceAll('\\*', '.*')) : null,
+      }
+    })
+    .filter(Boolean)
+}
+
+function supportLogHaystack(entry) {
+  return [entry.ts, entry.level, entry.logger, entry.message]
+    .filter(value => value !== null && value !== undefined)
+    .map(value => String(value).toLowerCase())
+    .join(' ')
+}
+
+function escapeSupportLogRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 // ── History Backend ────────────────────────────────────────────────────────
 const histForm = reactive({
@@ -1366,8 +2100,12 @@ async function doCreateKey() {
 async function deleteApiKey(id) { await authApi.deleteApiKey(id); await loadKeys() }
 
 // ── Sicherung / Wiederherstellung ──────────────────────────────────────────
-const importResult   = ref(null)
-const importDbResult = ref(null)
+const importResult    = ref(null)
+const importDbResult  = ref(null)
+const importFileName  = ref('')
+const importDbFileName = ref('')
+const importFileInput  = ref(null)
+const importDbFileInput = ref(null)
 
 function _ts() {
   const now = new Date()
@@ -1392,6 +2130,7 @@ async function doExportDb() {
 
 async function onImportFile(e) {
   const file = e.target.files[0]; if (!file) return
+  importFileName.value = file.name
   const text = await file.text()
   try {
     const payload = JSON.parse(text)
@@ -1411,6 +2150,7 @@ async function onImportFile(e) {
 
 async function onImportDbFile(e) {
   const file = e.target.files[0]; if (!file) return
+  importDbFileName.value = file.name
   importDbResult.value = null
   try {
     const { data } = await configApi.importDb(file)
@@ -1526,10 +2266,20 @@ async function doKnxImport() {
       params.direction    = knxDirection.value
     }
     const { data } = await knxprojApi.import(fd, params)
-    knxResult.value = { ok: true, text: data.message }
+    let msg = t('settings.importexport.knxImportResultOk', { n: data.imported })
+    if (data.created  > 0) msg += t('settings.importexport.knxImportResultCreated',   { n: data.created })
+    if (data.updated  > 0) msg += t('settings.importexport.knxImportResultUpdated',   { n: data.updated })
+    if (data.locations > 0) msg += t('settings.importexport.knxImportResultLocations', { n: data.locations })
+    if (data.trades   > 0) msg += t('settings.importexport.knxImportResultTrades',    { n: data.trades })
+    knxResult.value = { ok: true, text: msg }
     await loadKnxGaCount()
   } catch (err) {
-    knxResult.value = { ok: false, text: err.response?.data?.detail ?? 'Import fehlgeschlagen' }
+    const resp = err.response?.data
+    const code = resp?.error_code
+    const text = code && te(`settings.importexport.error_${code}`)
+      ? t(`settings.importexport.error_${code}`)
+      : (typeof resp?.detail === 'string' ? resp.detail : null) ?? t('settings.importexport.importFailed')
+    knxResult.value = { ok: false, text }
   } finally {
     knxImporting.value = false
   }
@@ -1627,6 +2377,23 @@ const iconsSelected = ref(new Set())
 const iconsSearch   = ref('')
 const iconsMsg      = ref(null)
 const iconsDragOver = ref(false)
+
+// KNX UF Iconset
+const knxufImporting = ref(false)
+const knxufMsg       = ref(null)
+
+async function doKnxufImport() {
+  knxufImporting.value = true; knxufMsg.value = null
+  try {
+    const { data } = await iconsApi.importKnxuf()
+    knxufMsg.value = { ok: data.imported > 0, text: data.message }
+    if (data.imported > 0) await loadIcons()
+  } catch (e) {
+    knxufMsg.value = { ok: false, text: e.response?.data?.detail ?? t('settings.icons.knxufFailed') }
+  } finally {
+    knxufImporting.value = false
+  }
+}
 
 // FontAwesome form
 const faIconNames = ref('')

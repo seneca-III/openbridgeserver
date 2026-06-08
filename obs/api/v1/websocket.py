@@ -25,12 +25,15 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from obs.api.v1 import sessions as sessions_api
+from obs.core.json import jsonable
 from obs.db.database import Database, get_db
 from obs.models.visu import PageConfig
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
+
+LogAccessCheck = Callable[[], Awaitable[bool]]
 
 
 # ---------------------------------------------------------------------------
@@ -42,17 +45,21 @@ class WebSocketManager:
     """Tracks all connected WebSocket clients and their DataPoint subscriptions."""
 
     def __init__(self) -> None:
-        # conn_id → (websocket, subscribed_dp_ids, send_lock, allowed_dp_ids)
+        # conn_id → (websocket, subscribed_dp_ids, send_lock, allowed_dp_ids, log_access, log_access_check)
         # allowed_dp_ids: None = unrestricted (authenticated user),
         # otherwise page-scoped allowlist for anonymous viewer sessions.
+        # log_access: authenticated non-page connections receive log_entry pushes.
+        # log_access_check: revalidates API-key existence before every log_entry push.
         # send_lock serialises concurrent sends on the same WebSocket;
         # concurrent asyncio.gather calls in EventBus would otherwise race.
-        self._connections: dict[str, tuple[WebSocket, set[str], asyncio.Lock, set[str] | None]] = {}
+        self._connections: dict[str, tuple[WebSocket, set[str], asyncio.Lock, set[str] | None, bool, LogAccessCheck | None]] = {}
 
     async def connect(
         self,
         ws: WebSocket,
         allowed_dp_ids: set[str] | None = None,
+        log_access: bool = False,
+        log_access_check: LogAccessCheck | None = None,
         subprotocol: str | None = None,
     ) -> str:
         if subprotocol is None:
@@ -64,7 +71,7 @@ class WebSocketManager:
                 # Test doubles may not support the subprotocol kwarg.
                 await ws.accept()
         conn_id = str(uuid.uuid4())
-        self._connections[conn_id] = (ws, set(), asyncio.Lock(), allowed_dp_ids)
+        self._connections[conn_id] = (ws, set(), asyncio.Lock(), allowed_dp_ids, log_access, log_access_check)
         logger.debug("WS client connected: %s  (total: %d)", conn_id[:8], len(self._connections))
         return conn_id
 
@@ -111,7 +118,8 @@ class WebSocketManager:
         entry = self._connections.get(conn_id)
         if entry is None:
             return False
-        ws, _, lock, _allowed = entry
+        ws = entry[0]
+        lock = entry[2]
         async with lock:
             try:
                 await ws.send_json(msg)
@@ -128,7 +136,15 @@ class WebSocketManager:
     async def broadcast(self, msg: dict) -> None:
         """Send a message to ALL connected clients (no subscription filter)."""
         dead: list[str] = []
-        for conn_id in list(self._connections):
+        log_only = msg.get("action") == "log_entry"
+        for conn_id, entry in list(self._connections.items()):
+            _, _subs, _lock, _allowed_ids, log_access, log_access_check = entry
+            if log_only:
+                if not log_access:
+                    continue
+                if log_access_check is not None and not await log_access_check():
+                    self._set_log_access(conn_id, False)
+                    continue
             if not await self._send(conn_id, msg):
                 dead.append(conn_id)
         for conn_id in dead:
@@ -154,14 +170,15 @@ class WebSocketManager:
         # ── 1. Per-subscription DP value events ──────────────────────────
         dp_msg = {
             "id": dp_id_str,
-            "v": event.value,
+            "v": jsonable(event.value),
             "u": dp.unit if dp else None,
             "t": ts_str,
             "q": event.quality,
-            "old_v": state.old_value if state else None,
+            "old_v": jsonable(state.old_value) if state else None,
         }
         dead: list[str] = []
-        for conn_id, (_, subs, _lock, _allowed_ids) in list(self._connections.items()):
+        for conn_id, entry in list(self._connections.items()):
+            subs = entry[1]
             if dp_id_str not in subs:
                 continue
             if not await self._send(conn_id, dp_msg):
@@ -170,23 +187,38 @@ class WebSocketManager:
             await self.disconnect(conn_id)
 
         # ── 2. RingBuffer live-push — broadcast to ALL clients ────────────
-        rb_msg = {
-            "action": "ringbuffer_entry",
-            "entry": {
-                "ts": ts_str,
-                "datapoint_id": dp_id_str,
-                "name": dp.name if dp else None,
-                "new_value": event.value,
-                "old_value": state.old_value if state else None,
-                "quality": event.quality,
-                "source_adapter": event.source_adapter,
-                "unit": dp.unit if dp else None,
-            },
+        base_rb_entry = {
+            "ts": ts_str,
+            "datapoint_id": dp_id_str,
+            "name": dp.name if dp else None,
+            "new_value": jsonable(event.value),
+            "old_value": jsonable(state.old_value) if state else None,
+            "quality": event.quality,
+            "source_adapter": event.source_adapter,
+            "unit": dp.unit if dp else None,
         }
+        metadata: dict[str, Any] | None = None
+        if any(entry[3] is None for entry in self._connections.values()):
+            from obs.ringbuffer.ringbuffer import build_ringbuffer_metadata_snapshot
+
+            metadata = await build_ringbuffer_metadata_snapshot(
+                dp_id=dp_id_str,
+                source_adapter=str(event.source_adapter),
+                datapoint=dp,
+            )
         dead = []
-        for conn_id, (_, _subs, _lock, allowed_ids) in list(self._connections.items()):
+        for conn_id, entry in list(self._connections.items()):
+            allowed_ids = entry[3]
             if allowed_ids is not None and dp_id_str not in allowed_ids:
                 continue
+            rb_entry = base_rb_entry
+            if allowed_ids is None and metadata is not None:
+                rb_entry = {
+                    **base_rb_entry,
+                    "metadata_version": 1,
+                    "metadata": metadata,
+                }
+            rb_msg = {"action": "ringbuffer_entry", "entry": rb_entry}
             if not await self._send(conn_id, rb_msg):
                 dead.append(conn_id)
         for conn_id in dead:
@@ -195,6 +227,13 @@ class WebSocketManager:
     @property
     def connection_count(self) -> int:
         return len(self._connections)
+
+    def _set_log_access(self, conn_id: str, log_access: bool) -> None:
+        entry = self._connections.get(conn_id)
+        if entry is None:
+            return
+        ws, subs, lock, allowed_dp_ids, _old_log_access, log_access_check = entry
+        self._connections[conn_id] = (ws, subs, lock, allowed_dp_ids, log_access, log_access_check)
 
 
 async def _page_allowed_datapoints(
@@ -428,6 +467,26 @@ async def _authenticate_ws_request(ws: WebSocket) -> tuple[bool, str]:
     return await _authenticate_visu_page_scope(ws)
 
 
+async def _ws_has_log_access(user: str | None, api_key: str | None) -> bool:
+    """Return whether the authenticated websocket may receive log_entry pushes."""
+    if user and user != "__api_key__":
+        return True
+    if api_key:
+        try:
+            db = get_db()
+        except RuntimeError:
+            return False
+        from obs.api.auth import hash_api_key
+
+        key_hash = hash_api_key(api_key)
+        row = await db.fetchone(
+            "SELECT COALESCE(NULLIF(owner, ''), name) AS subject FROM api_keys WHERE key_hash=?",
+            (key_hash,),
+        )
+        return row is not None
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
@@ -543,8 +602,16 @@ async def websocket_endpoint(
             # page config cannot be parsed (e.g. lightweight test doubles).
             allowed_dp_ids = set()
 
+    log_access = await _ws_has_log_access(user, api_key) if allowed_dp_ids is None else False
+
     manager = get_ws_manager()
-    conn_id = await manager.connect(ws, allowed_dp_ids=allowed_dp_ids, subprotocol=selected_subprotocol)
+    conn_id = await manager.connect(
+        ws,
+        allowed_dp_ids=allowed_dp_ids,
+        log_access=log_access,
+        log_access_check=(lambda: _ws_has_log_access(user, api_key)) if log_access else None,
+        subprotocol=selected_subprotocol,
+    )
 
     try:
         while True:

@@ -20,7 +20,14 @@ class AuditContext:
     user_agent: str | None
 
 
-def build_audit_context(request: Request, current_user: str | None) -> AuditContext:
+def build_audit_context(request: Request | None, current_user: str | None) -> AuditContext:
+    if request is None:
+        return AuditContext(
+            actor=current_user or "anonymous",
+            request_id=None,
+            remote_addr=None,
+            user_agent=None,
+        )
     client_host = request.client.host if request.client else None
     return AuditContext(
         actor=current_user or "anonymous",
@@ -64,6 +71,8 @@ class AuditLogWriter:
                 self.context.user_agent,
             ),
         )
+        if cur is None:
+            return 0
         return int(cur.lastrowid)
 
 

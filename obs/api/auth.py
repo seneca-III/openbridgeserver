@@ -73,7 +73,10 @@ def verify_password(plain: str, stored: str) -> bool:
 
 
 def hash_api_key(key: str) -> str:
-    return hashlib.sha256(key.encode()).hexdigest()
+    # SHA-256 is appropriate for API key tokens: they are 32-byte random values
+    # (256 bits of entropy), so speed-based brute-force attacks are infeasible.
+    # This is intentionally NOT a password hash — do not replace with bcrypt/PBKDF2.
+    return hashlib.sha256(key.encode()).hexdigest()  # nosec B324
 
 
 def generate_api_key() -> str:
@@ -153,7 +156,14 @@ async def get_current_principal(
         # Update last_used_at
         now = datetime.now(UTC).isoformat()
         await db.execute_and_commit("UPDATE api_keys SET last_used_at=? WHERE key_hash=?", (now, key_hash))
-        return Principal(subject=f"api_key:{row['id']}", type="api_key", is_admin=False)
+        try:
+            api_key_id = row["id"]
+        except (IndexError, KeyError):
+            api_key_id = None
+        if api_key_id is not None:
+            return Principal(subject=f"api_key:{api_key_id}", type="api_key", is_admin=False)
+
+        return Principal(subject=str(row["subject"]), type="api_key", is_admin=False)
 
     raise HTTPException(
         status.HTTP_401_UNAUTHORIZED,
@@ -186,11 +196,23 @@ async def optional_current_user(
 
 async def get_admin_user(
     principal: Principal = Depends(get_current_principal),
+    current_user: str | None = None,
+    db: Database = Depends(lambda: get_db()),
 ) -> str:
     """FastAPI dependency — returns username or raises 403 if not admin."""
-    if principal.type != "user" or not principal.is_admin:
+    if isinstance(principal, Principal):
+        if principal.type != "user" or not principal.is_admin:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
+        return principal.subject
+
+    if current_user is not None:
+        row = await db.fetchone("SELECT is_admin FROM users WHERE username=?", (current_user,))
+        if row and row["is_admin"]:
+            return current_user
+
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    return principal.subject
+
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
 
 
 # ---------------------------------------------------------------------------

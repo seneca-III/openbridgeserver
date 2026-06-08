@@ -325,10 +325,10 @@ async def get_history_settings(
 
 @router.put("/history/settings", response_model=HistorySettingsOut)
 async def update_history_settings(
-    request: Request,
     body: HistorySettingsIn,
+    request: Request = None,  # type: ignore[assignment]
     db: Database = Depends(get_db),
-    admin_user: str = Depends(get_admin_user),
+    _admin: str = Depends(get_admin_user),
 ) -> HistorySettingsOut:
     """Update history backend configuration and hot-reload the plugin. Admin only."""
     if body.plugin not in ("sqlite", "influxdb", "timescaledb"):
@@ -378,7 +378,7 @@ async def update_history_settings(
 
     audit_writer = AuditLogWriter(
         db=db,
-        context=build_audit_context(request=request, current_user=admin_user),
+        context=build_audit_context(request=request, current_user=_admin),
     )
     await audit_writer.write(
         action="system.history.settings.updated",
