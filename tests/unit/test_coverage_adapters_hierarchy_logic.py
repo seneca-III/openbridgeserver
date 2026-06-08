@@ -2432,7 +2432,16 @@ class TestLogicManagerValueEvent:
                 }
             ]
         )
-        flow2 = _make_flow()
+        flow2 = _make_flow(
+            nodes=[
+                {
+                    "id": "n2",
+                    "type": "datapoint_read",
+                    "position": {"x": 0, "y": 0},
+                    "data": {"datapoint_id": str(dp_id)},
+                }
+            ]
+        )
         mgr, _, _, _ = _make_logic_manager(graphs={"g1": ("G1", True, flow1), "g2": ("G2", True, flow2)})
         executed = []
 
