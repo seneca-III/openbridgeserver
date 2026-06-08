@@ -355,3 +355,9 @@ async def test_fetch_ssrf_private_network_without_auth_blocked(client):
     resp = await client.get("/api/v1/weather/fetch?url=http://192.168.1.10/weather")
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "url_target_blocked"
+
+
+async def test_fetch_ssrf_user_query_param_does_not_enable_private_networks(client):
+    resp = await client.get("/api/v1/weather/fetch?url=http://192.168.1.10/weather&_user=admin")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "url_target_blocked"

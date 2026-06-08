@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -199,6 +200,81 @@ async def test_subscribe_filters_datapoints_for_page_scoped_connection():
 
 
 @pytest.mark.asyncio
+async def test_subscribe_initial_values_sends_current_registry_snapshot(monkeypatch):
+    dp_id = uuid4()
+    other_dp_id = uuid4()
+    ws = _FakeWebSocket()
+    manager = WebSocketManager()
+    conn_id = await manager.connect(ws)
+
+    class _RegistryStub:
+        def get(self, dp_uuid):
+            if dp_uuid == dp_id:
+                return SimpleNamespace(unit="W")
+            return None
+
+        def get_value(self, dp_uuid):
+            if dp_uuid == dp_id:
+                return SimpleNamespace(
+                    value=42.5,
+                    quality="good",
+                    ts=datetime(2026, 6, 8, 9, 10, 11, 123000, tzinfo=UTC),
+                )
+            return None
+
+    monkeypatch.setattr("obs.core.registry.get_registry", lambda: _RegistryStub())
+
+    manager.subscribe(conn_id, [str(dp_id), str(other_dp_id), "not-a-uuid"])
+    await manager.send_initial_values(conn_id, [str(dp_id), str(other_dp_id), "not-a-uuid"])
+
+    assert ws.messages == [
+        {
+            "id": str(dp_id),
+            "v": 42.5,
+            "u": "W",
+            "t": "2026-06-08T09:10:11.123Z",
+            "q": "good",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_subscribe_initial_values_respects_page_scope(monkeypatch):
+    allowed_uuid = uuid4()
+    blocked_uuid = uuid4()
+    allowed_id = str(allowed_uuid)
+    blocked_id = str(blocked_uuid)
+    ws = _FakeWebSocket()
+    manager = WebSocketManager()
+    conn_id = await manager.connect(ws, allowed_dp_ids={allowed_id})
+
+    class _RegistryStub:
+        def get(self, dp_uuid):
+            if dp_uuid in {allowed_uuid, blocked_uuid}:
+                return SimpleNamespace(unit="W")
+            return None
+
+        def get_value(self, dp_uuid):
+            if dp_uuid in {allowed_uuid, blocked_uuid}:
+                return SimpleNamespace(
+                    value=str(dp_uuid),
+                    quality="good",
+                    ts=datetime(2026, 6, 8, 9, 10, 11, 123000, tzinfo=UTC),
+                )
+            return None
+
+    monkeypatch.setattr("obs.core.registry.get_registry", lambda: _RegistryStub())
+
+    before = manager.subscriptions(conn_id)
+    manager.subscribe(conn_id, [allowed_id, blocked_id])
+    after = manager.subscriptions(conn_id)
+    added = [dp_id for dp_id in [allowed_id, blocked_id] if dp_id in after and dp_id not in before]
+    await manager.send_initial_values(conn_id, added)
+
+    assert [msg["id"] for msg in ws.messages] == [allowed_id]
+
+
+@pytest.mark.asyncio
 async def test_ringbuffer_push_is_scoped_for_anonymous_page_connections(monkeypatch):
     allowed_uuid = uuid4()
     blocked_uuid = uuid4()
@@ -248,11 +324,49 @@ async def test_ringbuffer_push_is_scoped_for_anonymous_page_connections(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_handle_value_event_accepts_six_field_connection_entries(monkeypatch):
+    dp_uuid = uuid4()
+    dp_id = str(dp_uuid)
+    ws = _FakeWebSocket()
+    manager = WebSocketManager()
+    conn_id = await manager.connect(ws)
+    manager.subscribe(conn_id, [dp_id])
+
+    ws_entry = manager._connections[conn_id]  # noqa: SLF001
+    manager._connections[conn_id] = (ws_entry[0], ws_entry[1], asyncio.Lock(), ws_entry[3], False, None)  # noqa: SLF001
+
+    class _RegistryStub:
+        def get(self, _dp_id):
+            return SimpleNamespace(name="Six Field DP", unit="W")
+
+        def get_value(self, _dp_id):
+            return SimpleNamespace(old_value=1.0)
+
+    monkeypatch.setattr("obs.core.registry.get_registry", lambda: _RegistryStub())
+
+    event = DataValueEvent(
+        datapoint_id=dp_uuid,
+        value=2.0,
+        quality="good",
+        source_adapter="api",
+        ts=datetime(2026, 5, 6, 19, 44, 49, 123000, tzinfo=UTC),
+    )
+
+    await manager.handle_value_event(event)
+
+    assert ws.messages[0]["id"] == dp_id
+    assert ws.messages[1]["action"] == "ringbuffer_entry"
+    assert ws.messages[1]["entry"]["datapoint_id"] == dp_id
+
+
+@pytest.mark.asyncio
 async def test_page_allowed_datapoints_collects_only_datapoint_fields():
     nested_dp_id = str(uuid4())
     not_a_datapoint_uuid = str(uuid4())
     source_page_id_uuid = str(uuid4())
     entity_dp_id = str(uuid4())
+    mini_widget_dp_id = str(uuid4())
+    mini_widget_status_dp_id = str(uuid4())
 
     page_config = {
         "grid_cols": 12,
@@ -278,6 +392,14 @@ async def test_page_allowed_datapoints_collects_only_datapoint_fields():
                     "entities": [
                         {"id": entity_dp_id, "label": str(uuid4())},
                     ],
+                    "miniWidgets": [
+                        {
+                            "id": str(uuid4()),
+                            "widgetType": "display_value",
+                            "datapointId": mini_widget_dp_id,
+                            "statusDatapointId": mini_widget_status_dp_id,
+                        },
+                    ],
                 },
             },
         ],
@@ -292,6 +414,8 @@ async def test_page_allowed_datapoints_collects_only_datapoint_fields():
     assert ids is not None
     assert nested_dp_id in ids
     assert entity_dp_id in ids
+    assert mini_widget_dp_id in ids
+    assert mini_widget_status_dp_id in ids
     assert not_a_datapoint_uuid not in ids
     assert source_page_id_uuid not in ids
 

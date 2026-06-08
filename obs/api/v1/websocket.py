@@ -25,6 +25,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from obs.api.v1 import sessions as sessions_api
+from obs.api.v1.datapoint_config import collect_datapoint_ids_from_config, is_uuid_str
 from obs.core.json import jsonable
 from obs.db.database import Database, get_db
 from obs.models.visu import PageConfig
@@ -106,6 +107,43 @@ class WebSocketManager:
     def unsubscribe(self, conn_id: str, dp_ids: list[str]) -> None:
         if conn_id in self._connections:
             self._connections[conn_id][1].difference_update(dp_ids)
+
+    async def send_initial_values(self, conn_id: str, dp_ids: list[str]) -> None:
+        """Send current registry values for subscribed datapoints."""
+        from obs.core.registry import get_registry
+
+        try:
+            reg = get_registry()
+        except RuntimeError:
+            return
+
+        dead = False
+        for dp_id in dp_ids:
+            try:
+                dp_uuid = uuid.UUID(dp_id)
+            except (TypeError, ValueError):
+                continue
+
+            dp = reg.get(dp_uuid)
+            state = reg.get_value(dp_uuid)
+            if dp is None or state is None:
+                continue
+
+            ts = state.ts
+            ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            msg = {
+                "id": str(dp_uuid),
+                "v": jsonable(state.value),
+                "u": dp.unit,
+                "t": ts_str,
+                "q": state.quality,
+            }
+            if not await self._send(conn_id, msg):
+                dead = True
+                break
+
+        if dead:
+            await self.disconnect(conn_id)
 
     async def _send(self, conn_id: str, msg: dict) -> bool:
         """Send *msg* to one connection, serialised via its per-connection lock.
@@ -244,48 +282,6 @@ async def _page_allowed_datapoints(
 ) -> set[str] | None:
     """Return datapoint IDs referenced by a PAGE node, or None if page does not exist."""
 
-    datapoint_keys_exact = {
-        "datapoint_id",
-        "status_datapoint_id",
-        "dp_id",
-        "house_dp",
-        "secondary_dp_id",
-        "actual_temp_dp_id",
-        "mode_dp_id",
-    }
-
-    def _is_uuid_str(value: str) -> bool:
-        try:
-            uuid.UUID(value)
-            return True
-        except (TypeError, ValueError):
-            return False
-
-    def _is_datapoint_config_key(key: str, parent_key: str | None) -> bool:
-        if key in datapoint_keys_exact:
-            return True
-        if key.startswith("dp_"):
-            return True
-        if key.endswith(("_dp", "_dp_id", "_datapoint_id")):
-            return True
-        # Widgets with array items that store datapoint IDs as `id`.
-        # - Info: extra_datapoints[].id
-        # - Energiefluss: entities[].id
-        if key == "id" and parent_key in {"extra_datapoints", "entities"}:
-            return True
-        return False
-
-    def _collect_datapoint_ids(value: Any, out: set[str], *, parent_key: str | None = None) -> None:
-        if isinstance(value, dict):
-            for key, nested in value.items():
-                if isinstance(nested, str) and _is_datapoint_config_key(key, parent_key) and _is_uuid_str(nested):
-                    out.add(nested)
-                _collect_datapoint_ids(nested, out, parent_key=key)
-            return
-        if isinstance(value, list):
-            for nested in value:
-                _collect_datapoint_ids(nested, out, parent_key=parent_key)
-
     def _non_empty_str(value: Any) -> str | None:
         if isinstance(value, str) and value:
             return value
@@ -321,11 +317,11 @@ async def _page_allowed_datapoints(
         out: set[str],
         visited_refs: set[tuple[str, str]],
     ) -> None:
-        if widget.datapoint_id and _is_uuid_str(widget.datapoint_id):
+        if widget.datapoint_id and is_uuid_str(widget.datapoint_id):
             out.add(widget.datapoint_id)
-        if widget.status_datapoint_id and _is_uuid_str(widget.status_datapoint_id):
+        if widget.status_datapoint_id and is_uuid_str(widget.status_datapoint_id):
             out.add(widget.status_datapoint_id)
-        _collect_datapoint_ids(widget.config, out)
+        collect_datapoint_ids_from_config(widget.config, out)
 
         if widget.type != "widget_ref":
             return
@@ -630,7 +626,9 @@ async def websocket_endpoint(
                 manager.subscribe(conn_id, ids)
                 after = manager.subscriptions(conn_id)
                 added = [i for i in ids if i in after and i not in before]
+                subscribed = [i for i in ids if i in after]
                 await ws.send_json({"action": "subscribed", "ids": added})
+                await manager.send_initial_values(conn_id, subscribed)
 
             elif action == "unsubscribe":
                 ids = [str(i) for i in data.get("ids", [])]

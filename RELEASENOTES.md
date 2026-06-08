@@ -5,6 +5,9 @@
 * Security: Backend URL fetches from logic API-client nodes, iCalendar nodes, Pushover `image_url` attachments, the camera proxy, and the weather API now block private/local network targets by default unless they are explicitly allowlisted. Migration: existing installations using LAN cameras such as `http://192.168.x.x/...`, local `.ics` calendars, local Pushover image sources, or a local weather endpoint must allowlist the target under Settings → Security → URL Target Allowlist, or in the YAML file configured by `security.url_target_allowlist_path` (default: `OBS_SECRET_FILE_DIR/url-target-allowlist.yaml` when `OBS_SECRET_FILE_DIR` is set, otherwise `secrets/url-target-allowlist.yaml` next to the configured database). Use an IP address or CIDR for private targets, for example `192.168.1.23/32` or `10.38.113.0/24`. If a hostname such as `internal.example` resolves to a private IP address, allowlist the resolved IP/CIDR; a hostname-only entry does not override private-IP blocking and does not bypass DNS validation. Until the target is allowlisted, affected camera widgets, weather widgets, iCalendar nodes, Pushover image attachments, or logic API-client calls are intentionally blocked. https://github.com/abeggled/openbridgeserver/pull/700
 * Security: Support-package creation and temporary debug-log controls are now admin-only. The regular in-memory log API remains available to authenticated users and API keys, and live `log_entry` WebSocket messages follow the same authenticated read access. Generated support packages sanitize credentials, endpoints, IPs/domains, paths, and log details before export. https://github.com/abeggled/openbridgeserver/pull/737
 
+### Known Issues 🔔
+* History DB with SQlite should only used for development environments. No testing, no production, we will remove this feature in the future.
+
 ### New features ✨
 * Adapter: The KNX adapter now also supports TCP tunneling mode and Secure support via import of the .knxkeys file. https://github.com/abeggled/openbridgeserver/issues/14
 * Adapter: Add detailed connection error messages for KNX adapter: https://github.com/abeggled/openbridgeserver/issues/466
@@ -79,6 +82,7 @@
 * Frontend: Monitor filterset dialog now marks required fields and explains invalid value filters before saving. https://github.com/abeggled/openbridgeserver/issues/720 https://github.com/abeggled/openbridgeserver/pull/723
 * Logic engine: Fixed a threading race in `LogicManager` by iterating over stable snapshots of graph and cron-task caches while re-checking current graph state before execution or persistence, preventing repeated `dictionary changed size during iteration` errors and stale graph execution during concurrent updates. https://github.com/abeggled/openbridgeserver/issues/738
 * Logic engine: The object selector now uses the entire available window space. https://github.com/abeggled/openbridgeserver/issues/345
+* Logic engine: Compare nodes now honour UI-saved operator aliases (`gt`, `lt`, `eq`, `gte`, `lte`, `ne`), support the static `operand` value when the second input is not wired, and keep existing `result`/`out` edge handles compatible so downstream logic nodes receive compare results correctly. https://github.com/abeggled/openbridgeserver/issues/742
 * Logic engine: Sommer/Winter (DIN) block now fills T1/T2/T3 slots correctly when sensors report at intervals that do not hit hours 7, 12, or 22 exactly (e.g. every 2 or 4 hours). "First-crossing" semantics: each slot is captured on the first measurement at or after its target hour, so daily_avg is always computed and heating mode switches reliably. https://github.com/abeggled/openbridgeserver/issues/548
 * Logic engine: Functional Block "Sommer/Winter (DIN)" completely rewritten: measurement times corrected to DIN Mannheimer standard (T1 = 07:00, T2 = 14:00, T3 = 21:00); single configurable threshold temperature (default 14 °C) with hysteresis (default 2 °C) replaces separate summer/winter thresholds; heating decision based on daily average; debug ports T1/T2/T3 now persist their values after the daily average is computed; missing slots are automatically recovered from history after a server restart. https://github.com/abeggled/openbridgeserver/issues/665
 * Backend Security (Upstream PR #683): prevent Uvicorn access logs from being exposed through the in-memory log stream.
@@ -112,6 +116,7 @@
 * Test stability: Monitor/Ringbuffer E2E scenarios stabilized. https://github.com/abeggled/openbridgeserver/pull/494
 * Visu: Internal API base URL usage fixed for E2E/runtime alignment. https://github.com/abeggled/openbridgeserver/pull/484
 * Visu: History widget now updates automatically when new values arrive via WebSocket. https://github.com/abeggled/openbridgeserver/issues/408
+* Visu: WebSocket subscriptions now immediately receive the current registry values, so viewers show values again right after reconnects or page changes instead of waiting for the next adapter poll. https://github.com/abeggled/openbridgeserver/issues/749
 * Visu: History widget now uses aggregated history buckets for multi-day ranges, so periods up to "last 90 days" remain complete and render efficiently instead of only showing the newest 24 hours. https://github.com/abeggled/openbridgeserver/issues/692
 * Visu: RTR Widget now use correct values for room controller (heating) DPT 20.102 https://github.com/abeggled/openbridgeserver/issues/461
 * Visu: Floorplan Widget: positioning broken if floorplan is rotated https://github.com/abeggled/openbridgeserver/issues/440
@@ -119,11 +124,9 @@
 * Visu: History widget displays translated labels instead of variable name
 * Visu: Fixed-width Visu pages are now centered horizontally in the viewer. https://github.com/abeggled/openbridgeserver/pull/672
 * Visu: History (Chart) widget and Value Display widget time-range dropdowns now show translated labels instead of raw i18n key strings. https://github.com/abeggled/openbridgeserver/issues/662
+* Visu: Public/unauthenticated Info widgets now load values for `extra_datapoints` correctly. Nested datapoint references such as `extra_datapoints[].id` are included in the page-scoped datapoint allowlist instead of returning HTTP 403 and showing `...`. https://github.com/abeggled/openbridgeserver/issues/748
 * QA/CI #375: Proxmox LXC, confusing checksum field content within release notes. https://github.com/abeggled/openbridgeserver/issues/375
   
-### Known Issues 🔔
-* none
-
 ### Contributors ❤️
 * Daniel Abegglen ([@abeggled](https://github.com/abeggled)) [Founder]
 * Yves Schumann ([@starwarsfan](https://github.com/starwarsfan))

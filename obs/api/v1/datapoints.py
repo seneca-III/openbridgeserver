@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, field_serializer
 
 from obs.api.auth import get_admin_user, get_current_user, optional_current_user
+from obs.api.v1.datapoint_config import collect_datapoint_ids_from_config
 from obs.api.v1.sessions import validate_session
 from obs.core.event_bus import DataValueEvent, get_event_bus
 from obs.core.registry import get_registry
@@ -367,7 +368,9 @@ async def _page_has_datapoint(db: Database, page_id: str, dp_id: uuid.UUID) -> b
     for widget in page.widgets:
         if widget.datapoint_id == dp_id_str or widget.status_datapoint_id == dp_id_str:
             return True
-        if any(v == dp_id_str for v in widget.config.values() if isinstance(v, str)):
+        config_dp_ids: set[str] = set()
+        collect_datapoint_ids_from_config(widget.config, config_dp_ids)
+        if dp_id_str in config_dp_ids:
             return True
     return False
 

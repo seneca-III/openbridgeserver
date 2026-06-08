@@ -81,7 +81,6 @@ async def _check_ssrf(
 async def fetch_weather(
     url: str = Query(..., description="Vollständige Wetter-API-URL (inkl. API-Key)"),
     current_user: str | None = Depends(optional_current_user),
-    _user: str | None = None,
 ) -> JSONResponse:
     """Holt Wetterdaten von der konfigurierten API-URL und gibt sie als JSON zurück.
     Der API-Key wird als Teil der URL übergeben (z.B. OpenWeatherMap appid=…).
@@ -96,11 +95,10 @@ async def fetch_weather(
             detail="Nur HTTP/HTTPS-URLs erlaubt",
         )
 
-    authenticated_user = current_user if current_user is not None else _user
     try:
         fetch_targets = await _check_ssrf(
             url,
-            allow_private_networks=authenticated_user is not None,
+            allow_private_networks=current_user is not None,
             legacy_detail=False,
         )
     except TypeError as exc:
@@ -108,7 +106,7 @@ async def fetch_weather(
             raise
         fetch_targets = await _check_ssrf(
             url,
-            allow_private_networks=authenticated_user is not None,
+            allow_private_networks=current_user is not None,
         )
     request_urls, pinned_headers, request_extensions = fetch_targets or ([url], {}, {})
 
