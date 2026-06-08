@@ -241,6 +241,10 @@ class GraphExecutor:
                 if num_a is not None and num_b is not None:
                     return {"out": op(num_a, num_b)}
                 if (num_a is None) != (num_b is None):
+                    if operator_key in {"eq", "=="}:
+                        return {"out": False}
+                    if operator_key in {"ne", "!="}:
+                        return {"out": True}
                     return {"out": False}
                 return {"out": op(str(a), str(b))}
 
