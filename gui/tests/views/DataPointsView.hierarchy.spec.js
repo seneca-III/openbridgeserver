@@ -203,4 +203,33 @@ describe('DataPointsView hierarchy rendering', () => {
     expect(wrapper.findAll('[title="Haus › Gebäude A › EG › Küche"]').length).toBeGreaterThanOrEqual(1)
     expect(wrapper.findAll('[title="Haus › Gebäude B › EG › Küche"]').length).toBeGreaterThanOrEqual(1)
   })
+
+  it('shows a warning badge when a datapoint has a type mismatch diagnostic', async () => {
+    const { wrapper } = await mountDataPointsView({
+      items: [
+        {
+          id: 'dp-mismatch',
+          name: 'Deye/Micro/Status',
+          data_type: 'FLOAT',
+          tags: [],
+          value: 'online',
+          quality: 'good',
+          diagnostics: [
+            {
+              type: 'type_mismatch',
+              expected: 'float',
+              got: 'str',
+              source_adapter: 'MQTT',
+              count: 3,
+            },
+          ],
+        },
+      ],
+    })
+
+    const badge = wrapper.find('[data-testid="dp-type-mismatch-dp-mismatch"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.attributes('title')).toContain('float')
+    expect(badge.attributes('title')).toContain('str')
+  })
 })

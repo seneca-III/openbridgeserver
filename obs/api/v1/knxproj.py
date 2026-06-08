@@ -230,15 +230,9 @@ async def _bulk_import_datapoints(
 
     # --- Adapter-Instanz neu laden ---
     try:
-        from obs.adapters.registry import _row_to_binding, get_instance_by_id
+        from obs.adapters.registry import reload_instance_bindings
 
-        adapter_instance = get_instance_by_id(adapter_instance_id)
-        if adapter_instance:
-            binding_rows = await db.fetchall(
-                "SELECT * FROM adapter_bindings WHERE adapter_instance_id=? AND enabled=1",
-                (adapter_instance_id,),
-            )
-            await adapter_instance.reload_bindings([_row_to_binding(r) for r in binding_rows])
+        await reload_instance_bindings(adapter_instance_id, db)
     except Exception:
         pass  # Adapter nicht geladen — kein Fehler
 

@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS adapter_bindings (
     datapoint_id    TEXT NOT NULL REFERENCES datapoints(id) ON DELETE CASCADE,
     adapter_type    TEXT NOT NULL,
     direction       TEXT NOT NULL CHECK (direction IN ('SOURCE', 'DEST', 'BOTH')),
-    config          TEXT NOT NULL DEFAULT '{}',
+    config          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(config)),
     enabled         INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
@@ -263,7 +263,7 @@ ALTER TABLE history_values ADD COLUMN source_adapter TEXT;
 """
 
 _MIGRATION_V20 = """
-ALTER TABLE adapter_bindings ADD COLUMN value_map TEXT;
+ALTER TABLE adapter_bindings ADD COLUMN value_map TEXT CHECK (value_map IS NULL OR json_valid(value_map));
 """
 
 _MIGRATION_V21 = """

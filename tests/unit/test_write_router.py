@@ -31,6 +31,29 @@ class _FakeInstance:
         self.writes.append(value)
 
 
+def _row(**overrides):
+    now = datetime.datetime.now(datetime.UTC).isoformat()
+    row = {
+        "id": str(uuid.uuid4()),
+        "datapoint_id": str(uuid.uuid4()),
+        "adapter_type": "MQTT",
+        "adapter_instance_id": str(uuid.uuid4()),
+        "direction": "DEST",
+        "config": "{}",
+        "enabled": 1,
+        "send_throttle_ms": None,
+        "send_on_change": 0,
+        "send_min_delta": None,
+        "send_min_delta_pct": None,
+        "value_formula": None,
+        "value_map": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    row.update(overrides)
+    return row
+
+
 def _binding(**kwargs):
     defaults = {
         "id": uuid.uuid4(),
@@ -220,3 +243,95 @@ async def test_time_value_event_routes_to_mqtt_raw_payload_without_template(monk
     assert topic == "clock/time"
     assert payload == "10:30:00"
     assert retain is False
+
+
+@pytest.mark.asyncio
+async def test_write_router_skips_invalid_binding_row_and_writes_valid_row(monkeypatch):
+    dp_id = uuid.uuid4()
+    valid_binding_id = uuid.uuid4()
+    rows = [
+        _row(id=str(uuid.uuid4()), datapoint_id="not-a-uuid"),
+        _row(id=str(valid_binding_id), datapoint_id=str(dp_id), adapter_instance_id=None),
+    ]
+    instance = _FakeInstance()
+    router = _make_router(rows)
+    monkeypatch.setattr(adapter_registry, "get_instance", lambda _adapter_type: instance)
+
+    await router._write_to_dest_bindings(dp_id, "value", skip_binding_id=None)
+
+    assert instance.writes == ["value"]
+
+
+@pytest.mark.asyncio
+async def test_handle_value_event_records_type_mismatch_diagnostic():
+    dp_id = uuid.uuid4()
+    registry = SimpleNamespace(
+        get=lambda _dp_id: SimpleNamespace(name="Status", data_type="FLOAT"),
+        report_type_mismatch=AsyncMock(),
+        clear_diagnostic=AsyncMock(),
+    )
+    router = _make_router([])
+    router._registry = registry
+    router._write_to_dest_bindings = AsyncMock()
+
+    event = SimpleNamespace(
+        datapoint_id=dp_id,
+        value="online",
+        binding_id=uuid.uuid4(),
+        quality="good",
+        source_adapter="MQTT",
+    )
+    await router.handle_value_event(event)
+
+    registry.report_type_mismatch.assert_awaited_once_with(
+        dp_id,
+        expected="float",
+        got="str",
+        source_adapter="MQTT",
+        value="online",
+    )
+    registry.clear_diagnostic.assert_not_awaited()
+    router._write_to_dest_bindings.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_value_event_clears_type_mismatch_after_valid_value():
+    dp_id = uuid.uuid4()
+    registry = SimpleNamespace(
+        get=lambda _dp_id: SimpleNamespace(name="Temperature", data_type="FLOAT"),
+        report_type_mismatch=AsyncMock(),
+        clear_diagnostic=AsyncMock(),
+    )
+    router = _make_router([])
+    router._registry = registry
+    router._write_to_dest_bindings = AsyncMock()
+
+    event = SimpleNamespace(
+        datapoint_id=dp_id,
+        value=21.5,
+        binding_id=uuid.uuid4(),
+        quality="good",
+        source_adapter="MQTT",
+    )
+    await router.handle_value_event(event)
+
+    registry.clear_diagnostic.assert_awaited_once_with(dp_id, "type_mismatch")
+    registry.report_type_mismatch.assert_not_awaited()
+    router._write_to_dest_bindings.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_report_type_mismatch_noops_when_registry_has_no_reporter():
+    router = _make_router([])
+    router._registry = SimpleNamespace()
+    event = SimpleNamespace(datapoint_id=uuid.uuid4(), value="online", source_adapter="MQTT")
+
+    await router._report_type_mismatch(event, "float", "str")
+
+
+@pytest.mark.asyncio
+async def test_clear_type_mismatch_noops_when_registry_has_no_clearer():
+    router = _make_router([])
+    router._registry = SimpleNamespace()
+
+    await router._clear_type_mismatch(uuid.uuid4())
