@@ -298,6 +298,11 @@ class TestCompareNode:
         out = run_single("compare", {"operator": "eq"}, {"in1": True, "in2": 1})
         assert out["out"] is True
 
+    @pytest.mark.parametrize("op", ["gt", "lt", "eq", "ne"])
+    def test_compare_returns_false_for_mixed_numeric_and_nonnumeric_values(self, op):
+        out = run_single("compare", {"operator": op}, {"in1": "open", "in2": 50})
+        assert out["out"] is False
+
     def test_none_input_returns_false(self):
         out = run_single("compare", {"operator": ">"}, {"in1": None, "in2": 5})
         assert out["out"] is False

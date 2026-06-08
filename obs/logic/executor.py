@@ -240,6 +240,8 @@ class GraphExecutor:
                 num_a, num_b = self._try_num(a), self._try_num(b)
                 if num_a is not None and num_b is not None:
                     return {"out": op(num_a, num_b)}
+                if (num_a is None) != (num_b is None):
+                    return {"out": False}
                 return {"out": op(str(a), str(b))}
 
             case "hysteresis":
