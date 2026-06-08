@@ -294,6 +294,10 @@ class TestCompareNode:
         out = run_single("compare", {"operator": op}, {"in1": a, "in2": b})
         assert out["out"] is expected
 
+    def test_compare_treats_bool_as_numeric(self):
+        out = run_single("compare", {"operator": "eq"}, {"in1": True, "in2": 1})
+        assert out["out"] is True
+
     def test_none_input_returns_false(self):
         out = run_single("compare", {"operator": ">"}, {"in1": None, "in2": 5})
         assert out["out"] is False
