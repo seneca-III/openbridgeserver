@@ -232,4 +232,34 @@ describe('DataPointsView hierarchy rendering', () => {
     expect(badge.attributes('title')).toContain('float')
     expect(badge.attributes('title')).toContain('str')
   })
+
+  it('uses fallback text for incomplete type mismatch diagnostics', async () => {
+    const { wrapper } = await mountDataPointsView({
+      items: [
+        {
+          id: 'dp-without-diagnostic',
+          name: 'Normal',
+          data_type: 'FLOAT',
+          tags: [],
+          value: 21.5,
+          quality: 'good',
+        },
+        {
+          id: 'dp-incomplete-diagnostic',
+          name: 'Incomplete',
+          data_type: 'FLOAT',
+          tags: [],
+          value: 'online',
+          quality: 'good',
+          diagnostics: [{ type: 'type_mismatch' }],
+        },
+      ],
+    })
+
+    expect(wrapper.find('[data-testid="dp-type-mismatch-dp-without-diagnostic"]').exists()).toBe(false)
+    const badge = wrapper.find('[data-testid="dp-type-mismatch-dp-incomplete-diagnostic"]')
+    expect(badge.exists()).toBe(true)
+    expect(badge.attributes('title')).toContain('—')
+    expect(badge.attributes('title')).toContain('1')
+  })
 })

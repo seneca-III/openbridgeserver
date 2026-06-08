@@ -11,7 +11,7 @@ from obs.adapters import registry as adapter_registry
 from obs.adapters.mqtt.adapter import MqttAdapter
 from obs.core.event_bus import DataValueEvent
 from obs.core import write_router
-from obs.core.write_router import WriteRouter
+from obs.core.write_router import WriteRouter, _cached_value_equals, _row_value, _to_cached_value
 from tests.adapters.conftest import make_binding
 
 
@@ -100,6 +100,14 @@ async def test_send_on_change_skips_duplicate_large_string(monkeypatch):
     await router._write_to_dest_bindings(dp_id, large_value, skip_binding_id=None)
 
     assert len(instance.writes) == 1
+
+
+def test_cached_value_helpers_cover_short_strings_and_digest_type_mismatch():
+    cached = _to_cached_value("short")
+
+    assert cached == "short"
+    assert _cached_value_equals("short", cached) is True
+    assert _cached_value_equals(42, ("__str_digest__", 5, "unused")) is False
 
 
 @pytest.mark.asyncio
@@ -219,6 +227,23 @@ async def test_handle_uses_json_fallback_when_deserializer_fails(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_handle_uses_raw_payload_when_deserializer_and_json_fallback_fail(monkeypatch):
+    dp_id = uuid.uuid4()
+    router = _make_router([])
+    router._registry = SimpleNamespace(get=lambda _dp_id: SimpleNamespace(name="dp", data_type="dummy"))
+    router._write_to_dest_bindings = AsyncMock()
+
+    def _failing_deserializer(_raw):
+        raise ValueError("boom")
+
+    fake_dt = SimpleNamespace(mqtt_deserializer=_failing_deserializer)
+    monkeypatch.setattr("obs.models.types.DataTypeRegistry.get", lambda _dt: fake_dt)
+
+    await router.handle(dp_id, "not json")
+    router._write_to_dest_bindings.assert_awaited_once_with(dp_id, "not json", skip_binding_id=None)
+
+
+@pytest.mark.asyncio
 async def test_time_value_event_routes_to_mqtt_raw_payload_without_template(monkeypatch):
     dp_id = uuid.uuid4()
     binding = make_binding({"topic": "clock/time"}, direction="DEST")
@@ -260,6 +285,27 @@ async def test_write_router_skips_invalid_binding_row_and_writes_valid_row(monke
     await router._write_to_dest_bindings(dp_id, "value", skip_binding_id=None)
 
     assert instance.writes == ["value"]
+
+
+@pytest.mark.asyncio
+async def test_send_min_delta_ignores_non_numeric_values(monkeypatch):
+    binding = _binding(send_min_delta=1.0)
+    instance = _FakeInstance()
+    router = _make_router([{"id": str(binding.id)}])
+    _patch_registry(monkeypatch, binding, instance)
+
+    await router._write_to_dest_bindings(uuid.uuid4(), "old", skip_binding_id=None)
+    await router._write_to_dest_bindings(uuid.uuid4(), "new", skip_binding_id=None)
+
+    assert instance.writes == ["old", "new"]
+
+
+def test_row_value_returns_none_for_rows_that_do_not_support_lookup():
+    class BadRow:
+        def __getitem__(self, _key):
+            raise TypeError("unsupported")
+
+    assert _row_value(BadRow(), "id") is None
 
 
 @pytest.mark.asyncio
