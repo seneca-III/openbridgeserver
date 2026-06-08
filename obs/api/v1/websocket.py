@@ -108,6 +108,43 @@ class WebSocketManager:
         if conn_id in self._connections:
             self._connections[conn_id][1].difference_update(dp_ids)
 
+    async def send_initial_values(self, conn_id: str, dp_ids: list[str]) -> None:
+        """Send current registry values for subscribed datapoints."""
+        from obs.core.registry import get_registry
+
+        try:
+            reg = get_registry()
+        except RuntimeError:
+            return
+
+        dead = False
+        for dp_id in dp_ids:
+            try:
+                dp_uuid = uuid.UUID(dp_id)
+            except (TypeError, ValueError):
+                continue
+
+            dp = reg.get(dp_uuid)
+            state = reg.get_value(dp_uuid)
+            if dp is None or state is None:
+                continue
+
+            ts = state.ts
+            ts_str = ts.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            msg = {
+                "id": str(dp_uuid),
+                "v": jsonable(state.value),
+                "u": dp.unit,
+                "t": ts_str,
+                "q": state.quality,
+            }
+            if not await self._send(conn_id, msg):
+                dead = True
+                break
+
+        if dead:
+            await self.disconnect(conn_id)
+
     async def _send(self, conn_id: str, msg: dict) -> bool:
         """Send *msg* to one connection, serialised via its per-connection lock.
 
@@ -119,7 +156,8 @@ class WebSocketManager:
         entry = self._connections.get(conn_id)
         if entry is None:
             return False
-        ws, _, lock, _allowed, _log_access, _log_access_check = entry
+        ws = entry[0]
+        lock = entry[2]
         async with lock:
             try:
                 await ws.send_json(msg)
@@ -177,7 +215,8 @@ class WebSocketManager:
             "old_v": jsonable(state.old_value) if state else None,
         }
         dead: list[str] = []
-        for conn_id, (_, subs, _lock, _allowed_ids, _log_access, _log_access_check) in list(self._connections.items()):
+        for conn_id, entry in list(self._connections.items()):
+            subs = entry[1]
             if dp_id_str not in subs:
                 continue
             if not await self._send(conn_id, dp_msg):
@@ -197,7 +236,7 @@ class WebSocketManager:
             "unit": dp.unit if dp else None,
         }
         metadata: dict[str, Any] | None = None
-        if any(allowed_ids is None for _, _, _, allowed_ids, _, _ in self._connections.values()):
+        if any(entry[3] is None for entry in self._connections.values()):
             from obs.ringbuffer.ringbuffer import build_ringbuffer_metadata_snapshot
 
             metadata = await build_ringbuffer_metadata_snapshot(
@@ -206,7 +245,8 @@ class WebSocketManager:
                 datapoint=dp,
             )
         dead = []
-        for conn_id, (_, _subs, _lock, allowed_ids, _log_access, _log_access_check) in list(self._connections.items()):
+        for conn_id, entry in list(self._connections.items()):
+            allowed_ids = entry[3]
             if allowed_ids is not None and dp_id_str not in allowed_ids:
                 continue
             rb_entry = base_rb_entry
@@ -586,7 +626,9 @@ async def websocket_endpoint(
                 manager.subscribe(conn_id, ids)
                 after = manager.subscriptions(conn_id)
                 added = [i for i in ids if i in after and i not in before]
+                subscribed = [i for i in ids if i in after]
                 await ws.send_json({"action": "subscribed", "ids": added})
+                await manager.send_initial_values(conn_id, subscribed)
 
             elif action == "unsubscribe":
                 ids = [str(i) for i in data.get("ids", [])]
