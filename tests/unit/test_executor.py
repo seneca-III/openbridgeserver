@@ -273,9 +273,26 @@ class TestCompareNode:
         out = run_single("compare", {"operator": "lt", "operand": 50}, {"in1": 10})
         assert out["out"] is True
 
+    def test_static_operand_is_not_used_when_in2_is_wired_but_none(self):
+        out = run_single("compare", {"operator": "lt", "operand": 50}, {"in1": 10, "in2": None})
+        assert out["out"] is False
+
     def test_blank_static_operand_is_treated_as_missing(self):
         out = run_single("compare", {"operator": "gt", "operand": ""}, {"in1": 10})
         assert out["out"] is False
+
+    @pytest.mark.parametrize(
+        "op, a, b, expected",
+        [
+            ("eq", "open", "closed", False),
+            ("eq", "open", "open", True),
+            ("ne", "open", "closed", True),
+            ("ne", "open", "open", False),
+        ],
+    )
+    def test_operator_aliases_compare_nonnumeric_strings_as_strings(self, op, a, b, expected):
+        out = run_single("compare", {"operator": op}, {"in1": a, "in2": b})
+        assert out["out"] is expected
 
     def test_none_input_returns_false(self):
         out = run_single("compare", {"operator": ">"}, {"in1": None, "in2": 5})

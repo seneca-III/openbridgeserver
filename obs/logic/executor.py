@@ -151,6 +151,16 @@ class GraphExecutor:
             return default
 
     @staticmethod
+    def _try_num(v: Any) -> float | None:
+        """Return a float only when the original value is numeric-like."""
+        if isinstance(v, bool):
+            return 1.0 if v else 0.0
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _to_bool(v: Any) -> bool:
         """Coerce any value to bool. Strings '0'/'false'/'off' → False."""
         if v is None:
@@ -220,17 +230,17 @@ class GraphExecutor:
                 operator_key = str(d.get("operator", ">")).strip().lower()
                 op = _COMPARE_OPS.get(operator_key, operator.gt)
                 a, b = inputs.get("in1"), inputs.get("in2")
-                if b is None:
+                if "in2" not in inputs:
                     operand = d.get("operand")
                     if not (isinstance(operand, str) and operand.strip() == ""):
                         b = operand
                 if a is None or b is None:
                     return {"out": False}
                 # Auto-coerce to number when both values look numeric
-                try:
-                    return {"out": op(self._to_num(a), self._to_num(b))}
-                except TypeError:
-                    return {"out": op(str(a), str(b))}
+                num_a, num_b = self._try_num(a), self._try_num(b)
+                if num_a is not None and num_b is not None:
+                    return {"out": op(num_a, num_b)}
+                return {"out": op(str(a), str(b))}
 
             case "hysteresis":
                 val = inputs.get("value")
