@@ -25,6 +25,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from obs.api.v1 import sessions as sessions_api
+from obs.api.v1.datapoint_config import collect_datapoint_ids_from_config, is_uuid_str
 from obs.core.json import jsonable
 from obs.db.database import Database, get_db
 from obs.models.visu import PageConfig
@@ -281,48 +282,6 @@ async def _page_allowed_datapoints(
 ) -> set[str] | None:
     """Return datapoint IDs referenced by a PAGE node, or None if page does not exist."""
 
-    datapoint_keys_exact = {
-        "datapoint_id",
-        "status_datapoint_id",
-        "dp_id",
-        "house_dp",
-        "secondary_dp_id",
-        "actual_temp_dp_id",
-        "mode_dp_id",
-    }
-
-    def _is_uuid_str(value: str) -> bool:
-        try:
-            uuid.UUID(value)
-            return True
-        except (TypeError, ValueError):
-            return False
-
-    def _is_datapoint_config_key(key: str, parent_key: str | None) -> bool:
-        if key in datapoint_keys_exact:
-            return True
-        if key.startswith("dp_"):
-            return True
-        if key.endswith(("_dp", "_dp_id", "_datapoint_id")):
-            return True
-        # Widgets with array items that store datapoint IDs as `id`.
-        # - Info: extra_datapoints[].id
-        # - Energiefluss: entities[].id
-        if key == "id" and parent_key in {"extra_datapoints", "entities"}:
-            return True
-        return False
-
-    def _collect_datapoint_ids(value: Any, out: set[str], *, parent_key: str | None = None) -> None:
-        if isinstance(value, dict):
-            for key, nested in value.items():
-                if isinstance(nested, str) and _is_datapoint_config_key(key, parent_key) and _is_uuid_str(nested):
-                    out.add(nested)
-                _collect_datapoint_ids(nested, out, parent_key=key)
-            return
-        if isinstance(value, list):
-            for nested in value:
-                _collect_datapoint_ids(nested, out, parent_key=parent_key)
-
     def _non_empty_str(value: Any) -> str | None:
         if isinstance(value, str) and value:
             return value
@@ -358,11 +317,11 @@ async def _page_allowed_datapoints(
         out: set[str],
         visited_refs: set[tuple[str, str]],
     ) -> None:
-        if widget.datapoint_id and _is_uuid_str(widget.datapoint_id):
+        if widget.datapoint_id and is_uuid_str(widget.datapoint_id):
             out.add(widget.datapoint_id)
-        if widget.status_datapoint_id and _is_uuid_str(widget.status_datapoint_id):
+        if widget.status_datapoint_id and is_uuid_str(widget.status_datapoint_id):
             out.add(widget.status_datapoint_id)
-        _collect_datapoint_ids(widget.config, out)
+        collect_datapoint_ids_from_config(widget.config, out)
 
         if widget.type != "widget_ref":
             return
