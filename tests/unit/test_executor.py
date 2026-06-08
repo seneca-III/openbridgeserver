@@ -298,6 +298,37 @@ class TestCompareNode:
         assert out["cmp"]["out"] is True
         assert out["invert"]["out"] is False
 
+    def test_out_source_handle_from_result_node_flows_to_downstream_node(self):
+        nodes = [
+            node("a", "const_value", {"value": "2", "data_type": "number"}),
+            node("b", "const_value", {"value": "3", "data_type": "number"}),
+            node("sum", "math_formula", {"formula": "a + b"}),
+            node("cmp", "compare", {"operator": "eq", "operand": 5}),
+        ]
+        edges = [
+            edge("a", "sum", "value", "in1"),
+            edge("b", "sum", "value", "in2"),
+            edge("sum", "cmp", "out", "in1"),
+        ]
+        exc = make_executor(nodes, edges)
+
+        out = exc.execute()
+
+        assert out["sum"]["result"] == 5
+        assert out["cmp"]["out"] is True
+
+    def test_unknown_source_handle_resolves_to_none(self):
+        nodes = [
+            node("value", "const_value", {"value": "10", "data_type": "number"}),
+            node("cmp", "compare", {"operator": "gt", "operand": 5}),
+        ]
+        edges = [edge("value", "cmp", "missing", "in1")]
+        exc = make_executor(nodes, edges)
+
+        out = exc.execute()
+
+        assert out["cmp"]["out"] is False
+
 
 # ===========================================================================
 # hysteresis node
