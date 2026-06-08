@@ -717,6 +717,9 @@ class Database:
     async def commit(self) -> None:
         await self.conn.commit()
 
+    async def rollback(self) -> None:
+        await self.conn.rollback()
+
     async def fetchall(self, sql: str, params: Any = ()) -> list[aiosqlite.Row]:
         async with self.conn.execute(sql, params) as cur:
             return await cur.fetchall()

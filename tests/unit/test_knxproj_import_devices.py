@@ -128,3 +128,65 @@ async def test_import_knxproj_replaces_device_snapshot_on_reimport(monkeypatch: 
         assert only_co["id"] == "co-b"
     finally:
         await db.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_failed_device_snapshot_rolls_back_before_adapter_import_commit(monkeypatch: pytest.MonkeyPatch):
+    db = Database(":memory:")
+    await db.connect()
+    try:
+        await db.execute(
+            """INSERT INTO adapter_instances (id, adapter_type, name, config, enabled, created_at, updated_at)
+               VALUES ('inst-1', 'KNX', 'knx-main', '{}', 1, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')"""
+        )
+        await db.execute(
+            """INSERT INTO knx_group_addresses (address, name, description, dpt, imported_at)
+               VALUES ('1/2/3', 'Existing GA', '', 'DPT1.001', '2024-01-01T00:00:00Z')"""
+        )
+        await db.execute(
+            """INSERT INTO knx_devices
+                   (id, individual_address, name, description, product_name, product_refid, hardware2program_refid, imported_at)
+               VALUES ('dev-old', '1.1.10', 'Old Snapshot', '', 'Acme', 'OLD', 'APP-OLD', '2024-01-01T00:00:00Z')"""
+        )
+        await db.execute(
+            """INSERT INTO knx_comm_objects
+                   (id, device_id, number, name, text, function_text, datapoint_type, imported_at)
+               VALUES ('co-old', 'dev-old', '1', 'Old KO', '', '', 'DPT1.001', '2024-01-01T00:00:00Z')"""
+        )
+        await db.execute("INSERT INTO knx_co_ga_links (comm_object_id, ga_address) VALUES ('co-old', '1/2/3')")
+        await db.commit()
+
+        monkeypatch.setattr(knxproj_api, "parse_knxproj", lambda *_args, **_kwargs: [_ga("1/2/3")])
+        monkeypatch.setattr(knxproj_api, "parse_knxproj_locations", lambda *_args, **_kwargs: ([], []))
+        monkeypatch.setattr(knxproj_api, "parse_knxproj_trades", lambda *_args, **_kwargs: [])
+        monkeypatch.setattr(
+            knxproj_api,
+            "parse_knxproj_devices",
+            lambda *_args, **_kwargs: (
+                [
+                    _device("dev-new-a", "1.1.10", "New Snapshot A"),
+                    _device("dev-new-b", "1.1.10", "New Snapshot B"),
+                ],
+                [_co("co-new", "1.1.10", 1, "New KO", ["DPT1.001"])],
+                [_co_link("co-new", "1/2/3")],
+            ),
+        )
+
+        file = UploadFile(filename="project.knxproj", file=BytesIO(b"dummy"))
+        result = await knxproj_api.import_knxproj_file(
+            file=file,
+            password=None,
+            adapter_name="knx-main",
+            direction="SOURCE",
+            _user="admin",
+            db=db,
+        )
+
+        assert result.created == 1
+        device = await db.fetchone("SELECT id, name FROM knx_devices WHERE individual_address = '1.1.10'")
+        assert device["id"] == "dev-old"
+        assert device["name"] == "Old Snapshot"
+        link = await db.fetchone("SELECT comm_object_id FROM knx_co_ga_links WHERE ga_address = '1/2/3'")
+        assert link["comm_object_id"] == "co-old"
+    finally:
+        await db.disconnect()

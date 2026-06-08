@@ -123,10 +123,10 @@ function _matchValueFilter(entryValue, vf) {
  *
  * Empty / null / undefined criteria match NOTHING (Phase-2 UX feedback).
  *
- * Device-only filters also match NOTHING on the client: the frontend has no
- * resolver for that server-side mapping. The REST OR-union remains
- * authoritative; live pushes for device-only sets stay uncoloured until the
- * next refresh.
+ * Device-constrained filters match NOTHING on the client: the frontend has no
+ * resolver for that server-side mapping, even when other client-evaluable
+ * constraints pass. The REST OR-union remains authoritative; live pushes for
+ * device-constrained sets stay uncoloured until the next refresh.
  */
 export function matchEntry(entry, criteria) {
   if (!criteria || typeof criteria !== 'object') return false
@@ -135,6 +135,7 @@ export function matchEntry(entry, criteria) {
 
   const hasHierarchyConstraint = Array.isArray(criteria.hierarchy_nodes) && criteria.hierarchy_nodes.length > 0
   const hasDatapointConstraint = Array.isArray(criteria.datapoints) && criteria.datapoints.length > 0
+  const hasDeviceConstraint = Array.isArray(criteria.devices) && criteria.devices.length > 0
   const hasClientConstraint =
     hasDatapointConstraint ||
     (Array.isArray(criteria.adapters) && criteria.adapters.length > 0) ||
@@ -142,6 +143,7 @@ export function matchEntry(entry, criteria) {
     (typeof criteria.q === 'string' && criteria.q.trim().length > 0) ||
     (criteria.value_filter && criteria.value_filter.operator)
   if (!hasHierarchyConstraint && !hasClientConstraint) return false
+  if (hasDeviceConstraint) return false
 
   // Server-side hierarchy resolution OR-unions resolved hierarchy datapoints
   // with explicit datapoints before applying the remaining AND constraints.
@@ -178,8 +180,6 @@ export function matchEntry(entry, criteria) {
   if (criteria.value_filter && criteria.value_filter.operator) {
     if (!_matchValueFilter(entry.new_value, criteria.value_filter)) return false
   }
-
-  // devices is pass-through on the client side.
   return true
 }
 

@@ -272,10 +272,10 @@ describe('matchEntry — device-only filters', () => {
     expect(matchEntry(makeEntry(), { devices: ['1.1.10'] })).toBe(false)
   })
 
-  it('does not block match when devices is set alongside a client-evaluable passing criterion', () => {
+  it('returns false when devices is set alongside a client-evaluable passing criterion', () => {
     expect(matchEntry(makeEntry({ source_adapter: 'knx' }), {
       devices: ['1.1.10'],
       adapters: ['knx'],
-    })).toBe(true)
+    })).toBe(false)
   })
 })

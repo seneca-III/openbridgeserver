@@ -579,6 +579,7 @@ async def import_knxproj_file(
             now=now,
         )
     except Exception as e:
+        await db.rollback()
         logger.warning("Device-Import fehlgeschlagen (wird ignoriert): %s", e)
 
     # Ohne Adapter: nur GA-Tabelle → fertig
