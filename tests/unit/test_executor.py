@@ -273,6 +273,10 @@ class TestCompareNode:
         out = run_single("compare", {"operator": "lt", "operand": 50}, {"in1": 10})
         assert out["out"] is True
 
+    def test_blank_static_operand_is_treated_as_missing(self):
+        out = run_single("compare", {"operator": "gt", "operand": ""}, {"in1": 10})
+        assert out["out"] is False
+
     def test_none_input_returns_false(self):
         out = run_single("compare", {"operator": ">"}, {"in1": None, "in2": 5})
         assert out["out"] is False

@@ -112,7 +112,8 @@ class WebSocketManager:
         entry = self._connections.get(conn_id)
         if entry is None:
             return False
-        ws, _, lock, _allowed = entry
+        ws = entry[0]
+        lock = entry[2]
         async with lock:
             try:
                 await ws.send_json(msg)
@@ -162,7 +163,8 @@ class WebSocketManager:
             "old_v": jsonable(state.old_value) if state else None,
         }
         dead: list[str] = []
-        for conn_id, (_, subs, _lock, _allowed_ids) in list(self._connections.items()):
+        for conn_id, entry in list(self._connections.items()):
+            subs = entry[1]
             if dp_id_str not in subs:
                 continue
             if not await self._send(conn_id, dp_msg):
@@ -191,7 +193,8 @@ class WebSocketManager:
                 datapoint=dp,
             )
         dead = []
-        for conn_id, (_, _subs, _lock, allowed_ids) in list(self._connections.items()):
+        for conn_id, entry in list(self._connections.items()):
+            allowed_ids = entry[3]
             if allowed_ids is not None and dp_id_str not in allowed_ids:
                 continue
             rb_entry = base_rb_entry

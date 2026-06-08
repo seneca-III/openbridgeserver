@@ -221,7 +221,9 @@ class GraphExecutor:
                 op = _COMPARE_OPS.get(operator_key, operator.gt)
                 a, b = inputs.get("in1"), inputs.get("in2")
                 if b is None:
-                    b = d.get("operand")
+                    operand = d.get("operand")
+                    if not (isinstance(operand, str) and operand.strip() == ""):
+                        b = operand
                 if a is None or b is None:
                     return {"out": False}
                 # Auto-coerce to number when both values look numeric
