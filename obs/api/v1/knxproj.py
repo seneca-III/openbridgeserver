@@ -29,7 +29,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from obs.api.auth import get_admin_user, get_current_user
+from obs.api.auth import get_current_user
+from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
 from obs.db.database import Database, get_db
 from obs.knxproj.csv_parser import parse_ga_csv
 from obs.knxproj.parser import (
@@ -48,6 +49,25 @@ router = APIRouter(tags=["knxproj"])
 # ---------------------------------------------------------------------------
 
 
+_HIERARCHY_MODE_NAMES = {
+    "groups": "ETS Gruppenadressen",
+    "mid": "ETS Haupt- und Mittelgruppen",
+    "flat": "ETS Gruppenadressen flach",
+    "buildings": "ETS Gebäude und Räume",
+    "trades": "ETS Gewerke",
+}
+
+
+class HierarchyImportResult(BaseModel):
+    mode: str
+    status: str
+    tree_id: str | None = None
+    tree_name: str | None = None
+    nodes_created: int = 0
+    links_created: int = 0
+    message: str
+
+
 class ImportResult(BaseModel):
     imported: int
     created: int = 0
@@ -55,6 +75,7 @@ class ImportResult(BaseModel):
     locations: int = 0
     functions: int = 0
     trades: int = 0
+    hierarchies: list[HierarchyImportResult] = []
     message: str
 
 
@@ -392,6 +413,101 @@ async def _import_knx_devices_and_comm_objects(
 # ---------------------------------------------------------------------------
 
 
+def _normalize_hierarchy_modes(raw_modes: list[str] | None) -> list[str]:
+    if not raw_modes or not isinstance(raw_modes, list):
+        return []
+
+    modes: list[str] = []
+    for raw in raw_modes:
+        for part in raw.split(","):
+            mode = part.strip().lower()
+            if mode:
+                modes.append(mode)
+
+    invalid = sorted({mode for mode in modes if mode not in _HIERARCHY_MODE_NAMES})
+    if invalid:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "hierarchy_modes muss einen oder mehrere dieser Werte enthalten: groups, mid, flat, buildings, trades",
+        )
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for mode in modes:
+        if mode in seen:
+            continue
+        seen.add(mode)
+        deduped.append(mode)
+    return deduped
+
+
+async def _create_requested_hierarchies(
+    db: Database,
+    modes: list[str],
+    *,
+    auto_link: bool,
+    unavailable_messages: dict[str, str] | None = None,
+) -> list[HierarchyImportResult]:
+    results: list[HierarchyImportResult] = []
+    unavailable_messages = unavailable_messages or {}
+    for mode in modes:
+        tree_name = _HIERARCHY_MODE_NAMES[mode]
+        if mode in unavailable_messages:
+            results.append(
+                HierarchyImportResult(
+                    mode=mode,
+                    status="failed",
+                    tree_name=tree_name,
+                    message=unavailable_messages[mode],
+                )
+            )
+            continue
+        try:
+            created = await create_ets_hierarchy(
+                db,
+                EtsImportRequest(
+                    tree_name=tree_name,
+                    mode=mode,
+                    auto_link=auto_link,
+                ),
+            )
+        except HTTPException as exc:
+            message = str(exc.detail)
+            results.append(
+                HierarchyImportResult(
+                    mode=mode,
+                    status="failed",
+                    tree_name=tree_name,
+                    message=message,
+                )
+            )
+            continue
+        except Exception as exc:
+            logger.exception("ETS-Hierarchieimport fuer Modus '%s' fehlgeschlagen", mode)
+            results.append(
+                HierarchyImportResult(
+                    mode=mode,
+                    status="failed",
+                    tree_name=tree_name,
+                    message=f"Hierarchieimport fehlgeschlagen: {exc}",
+                )
+            )
+            continue
+
+        results.append(
+            HierarchyImportResult(
+                mode=mode,
+                status="created",
+                tree_id=created.tree_id,
+                tree_name=created.tree_name,
+                nodes_created=created.nodes_created,
+                links_created=created.links_created,
+                message=created.message,
+            )
+        )
+    return results
+
+
 @router.post("/import", response_model=ImportResult)
 async def import_knxproj_file(
     file: UploadFile = File(...),
@@ -401,7 +517,15 @@ async def import_knxproj_file(
         description="Adapter-Instanzname — wenn angegeben, werden DataPoints und Bindings angelegt",
     ),
     direction: str = Query("SOURCE", pattern="^(SOURCE|DEST|BOTH)$", description="Verknüpfungsrichtung"),
-    _user: str = Depends(get_admin_user),
+    hierarchy_modes: list[str] | None = Query(
+        None,
+        description="Optional: ETS-Hierarchien direkt miterzeugen. Mehrfach oder kommasepariert: groups, mid, flat, buildings, trades",
+    ),
+    hierarchy_auto_link: bool = Query(
+        True,
+        description="DataPoints automatisch mit ETS-Gebäude-/Gewerke-Hierarchien verknüpfen, wenn adapter_name DataPoints/Bindings erzeugt",
+    ),
+    _user: str = Depends(get_current_user),
     db: Database = Depends(get_db),
 ) -> ImportResult:
     """.knxproj Datei hochladen und Gruppenadressen in die DB importieren.
@@ -420,6 +544,8 @@ async def import_knxproj_file(
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Datei ist leer")
 
+    requested_hierarchy_modes = _normalize_hierarchy_modes(hierarchy_modes)
+    auto_link_requested = hierarchy_auto_link if isinstance(hierarchy_auto_link, bool) else True
     pwd = password or None
 
     # Parse GAs and locations in parallel — large files can take 10+ s each,
@@ -562,44 +688,47 @@ async def import_knxproj_file(
     except Exception as e:
         logger.warning("Trades-Import fehlgeschlagen (wird ignoriert): %s", e)
 
-    # Import Device Model (V34) — optional and backward compatible
-    devices_count = 0
-    comm_objects_count = 0
-    try:
-        devices_count, comm_objects_count = await _import_knx_devices_and_comm_objects(
-            file_bytes=content,
-            password=password or None,
-            db=db,
-            now=now,
-        )
-    except Exception as e:
-        await db.rollback()
-        logger.warning("Device-Import fehlgeschlagen (wird ignoriert): %s", e)
+    created = 0
+    updated = 0
+    if adapter_name:
+        # Mit Adapter: DataPoints + Bindings bulk anlegen
+        created, updated = await _bulk_import_datapoints(records, adapter_name, direction, db, now)
 
-    # Ohne Adapter: nur GA-Tabelle → fertig
-    if not adapter_name:
-        msg = f"{len(records)} Gruppenadressen importiert"
-        extra = []
-        if locations_count:
-            extra.append(f"{locations_count} Räume/Gebäude")
-        if trades_count:
-            extra.append(f"{trades_count} Gewerke")
-        if devices_count:
-            extra.append(f"{devices_count} Geräte")
-        if comm_objects_count:
-            extra.append(f"{comm_objects_count} KOs")
-        if extra:
-            msg += ", " + ", ".join(extra)
-        return ImportResult(
-            imported=len(records),
-            locations=locations_count,
-            functions=functions_count,
-            trades=trades_count,
-            message=msg,
-        )
+    hierarchy_results = await _create_requested_hierarchies(
+        db,
+        requested_hierarchy_modes,
+        auto_link=auto_link_requested and bool(adapter_name),
+        unavailable_messages={
+            **(
+                {"buildings": ("Keine Gebäude-Daten aus dieser .knxproj importiert. Der buildings-Hierarchieimport wurde übersprungen.")}
+                if locations_count == 0
+                else {}
+            ),
+            **(
+                {"trades": ("Keine Gewerke-Daten aus dieser .knxproj importiert. Der trades-Hierarchieimport wurde übersprungen.")}
+                if trades_count == 0
+                else {}
+            ),
+        },
+    )
 
-    # Mit Adapter: DataPoints + Bindings bulk anlegen
-    created, updated = await _bulk_import_datapoints(records, adapter_name, direction, db, now)
+    msg = f"{len(records)} Gruppenadressen importiert"
+    extra = []
+    if locations_count:
+        extra.append(f"{locations_count} Räume/Gebäude")
+    if trades_count:
+        extra.append(f"{trades_count} Gewerke")
+    if adapter_name:
+        extra.append(f"{created} DataPoints neu erstellt")
+        extra.append(f"{updated} aktualisiert")
+    created_hierarchies = [result for result in hierarchy_results if result.status == "created"]
+    failed_hierarchies = [result for result in hierarchy_results if result.status != "created"]
+    if created_hierarchies:
+        extra.append(f"{len(created_hierarchies)} Hierarchien erstellt")
+    if failed_hierarchies:
+        extra.append(f"{len(failed_hierarchies)} Hierarchien nicht erstellt")
+    if extra:
+        msg += ", " + ", ".join(extra)
 
     return ImportResult(
         imported=len(records),
@@ -608,7 +737,8 @@ async def import_knxproj_file(
         locations=locations_count,
         functions=functions_count,
         trades=trades_count,
-        message=f"{len(records)} Gruppenadressen importiert, {created} DataPoints neu erstellt, {updated} aktualisiert",
+        hierarchies=hierarchy_results,
+        message=msg,
     )
 
 
