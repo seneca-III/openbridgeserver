@@ -327,7 +327,7 @@ async def _import_knx_devices_and_comm_objects(
     if not await _knx_device_schema_ready(db):
         return 0, 0
 
-    devices, comm_objects, co_ga_links = parse_knxproj_devices(file_bytes, password)
+    devices, comm_objects, co_ga_links = await run_in_threadpool(parse_knxproj_devices, file_bytes, password)
 
     await db.execute("SAVEPOINT knx_device_snapshot")
     try:

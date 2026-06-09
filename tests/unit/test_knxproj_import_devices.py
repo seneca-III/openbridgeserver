@@ -50,6 +50,37 @@ def _co_link(comm_object_id: str, ga: str) -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
+async def test_device_import_parser_runs_in_threadpool(monkeypatch: pytest.MonkeyPatch):
+    db = Database(":memory:")
+    await db.connect()
+    try:
+        calls = []
+
+        def _parse_devices(file_bytes: bytes, password: str | None):
+            assert file_bytes == b"dummy"
+            assert password is None
+            return [], [], []
+
+        async def _run_in_threadpool(func, *args, **kwargs):
+            calls.append(func)
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(knxproj_api, "parse_knxproj_devices", _parse_devices)
+        monkeypatch.setattr(knxproj_api, "run_in_threadpool", _run_in_threadpool)
+
+        await knxproj_api._import_knx_devices_and_comm_objects(
+            file_bytes=b"dummy",
+            password=None,
+            db=db,
+            now="2024-01-01T00:00:00Z",
+        )
+
+        assert calls == [_parse_devices]
+    finally:
+        await db.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_import_knxproj_persists_devices_comm_objects_and_links(monkeypatch: pytest.MonkeyPatch):
     db = Database(":memory:")
     await db.connect()

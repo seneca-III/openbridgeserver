@@ -11,13 +11,15 @@ def _user(subject: str = "alice", *, is_admin: bool = False) -> Principal:
 def _grant(
     node_id: str,
     *,
-    role: Role = Role.RESIDENT,
-    effect: GrantEffect = GrantEffect.ALLOW,
+    role: Role | str = Role.RESIDENT,
+    effect: GrantEffect | str = GrantEffect.ALLOW,
     ancestors: tuple[str, ...] = (),
+    principal_type: str = "user",
+    principal_id: str = "alice",
 ) -> RoleGrant:
     return RoleGrant(
-        principal_type="user",
-        principal_id="alice",
+        principal_type=principal_type,
+        principal_id=principal_id,
         node_type="hierarchy",
         node_id=node_id,
         role=role,
@@ -26,7 +28,7 @@ def _grant(
     )
 
 
-def _target(node_id: str, *, ancestors: tuple[str, ...] = (), min_role: Role | None = None) -> AuthzTarget:
+def _target(node_id: str, *, ancestors: tuple[str, ...] = (), min_role: Role | str | None = None) -> AuthzTarget:
     return AuthzTarget(node_type="hierarchy", node_id=node_id, ancestors=ancestors, min_role=min_role)
 
 
@@ -74,11 +76,33 @@ def test_deny_beats_matching_allow():
     assert decision.reason == "explicit_deny"
 
 
+def test_persisted_text_deny_beats_matching_allow():
+    target = _target("room")
+    grants = [
+        _grant("room", role=Role.OWNER),
+        _grant("room", role=Role.GUEST, effect="deny"),
+    ]
+
+    decision = authorize(principal=_user(), action=AuthzAction.READ, targets=[target], grants=grants)
+
+    assert decision.allowed is False
+    assert decision.reason == "explicit_deny"
+
+
 def test_read_inherits_upwards_from_assigned_child_node():
     grant = _grant("room", role=Role.GUEST, ancestors=("building", "floor"))
     target = _target("floor", ancestors=("building",))
 
     decision = authorize(principal=_user(), action=AuthzAction.READ, targets=[target], grants=[grant])
+
+    assert decision.allowed is True
+
+
+def test_literal_read_action_keeps_read_inheritance():
+    grant = _grant("room", role=Role.GUEST, ancestors=("building", "floor"))
+    target = _target("floor", ancestors=("building",))
+
+    decision = authorize(principal=_user(), action="read", targets=[target], grants=[grant])
 
     assert decision.allowed is True
 
@@ -150,3 +174,26 @@ def test_control_class_gate_requires_minimum_role():
 
     assert resident_decision.allowed is False
     assert operator_decision.allowed is True
+
+
+def test_persisted_text_roles_satisfy_minimum_role_gate():
+    target = _target("actuator", min_role="operator")
+    grant = _grant("actuator", role="operator")
+
+    decision = authorize(principal=_user(), action="write", targets=[target], grants=[grant])
+
+    assert decision.allowed is True
+
+
+def test_api_key_principal_matches_raw_key_id_grant():
+    principal = Principal(subject="api_key:3ff3e934-8d4d-45f6-b4d0-5f6f2272681d", type="api_key", is_admin=False)
+    grant = _grant(
+        "room",
+        role=Role.GUEST,
+        principal_type="api_key",
+        principal_id="3ff3e934-8d4d-45f6-b4d0-5f6f2272681d",
+    )
+
+    decision = authorize(principal=principal, action=AuthzAction.READ, targets=[_target("room")], grants=[grant])
+
+    assert decision.allowed is True

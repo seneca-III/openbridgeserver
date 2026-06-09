@@ -54,7 +54,11 @@ class AuthzTarget:
     node_type: str
     node_id: str
     ancestors: tuple[str, ...] = ()
-    min_role: Role | None = None
+    min_role: Role | RoleName | None = None
+
+    def __post_init__(self) -> None:
+        if self.min_role is not None:
+            object.__setattr__(self, "min_role", Role(self.min_role))
 
     @property
     def path(self) -> tuple[str, ...]:
@@ -67,9 +71,13 @@ class RoleGrant:
     principal_id: str
     node_type: str
     node_id: str
-    role: Role
-    effect: GrantEffect = GrantEffect.ALLOW
+    role: Role | RoleName
+    effect: GrantEffect | EffectName = GrantEffect.ALLOW
     ancestors: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "role", Role(self.role))
+        object.__setattr__(self, "effect", GrantEffect(self.effect))
 
     @property
     def path(self) -> tuple[str, ...]:
@@ -85,7 +93,7 @@ class AuthzDecision:
 def authorize(
     *,
     principal: Principal,
-    action: AuthzAction,
+    action: AuthzAction | ActionName,
     targets: Iterable[AuthzTarget],
     grants: Iterable[RoleGrant],
 ) -> AuthzDecision:
@@ -101,13 +109,14 @@ def authorize(
     if principal.type == "user" and principal.is_admin:
         return AuthzDecision(True, "admin")
 
+    action_value = AuthzAction(action)
     grant_list = tuple(grant for grant in grants if _matches_principal(principal, grant))
-    target_decisions = tuple(_authorize_target(action=action, target=target, grants=grant_list) for target in target_list)
+    target_decisions = tuple(_authorize_target(action=action_value, target=target, grants=grant_list) for target in target_list)
 
     if any(decision.reason == "explicit_deny" for decision in target_decisions):
         return AuthzDecision(False, "explicit_deny")
 
-    if action is AuthzAction.READ:
+    if action_value == AuthzAction.READ:
         if any(decision.allowed for decision in target_decisions):
             return AuthzDecision(True, "allowed")
         return AuthzDecision(False, "missing_allow")
@@ -118,12 +127,18 @@ def authorize(
 
 
 def _matches_principal(principal: Principal, grant: RoleGrant) -> bool:
-    return grant.principal_type == principal.type and grant.principal_id == principal.subject
+    if grant.principal_type != principal.type:
+        return False
+    if grant.principal_id == principal.subject:
+        return True
+    if principal.type == "api_key" and principal.subject.startswith("api_key:"):
+        return grant.principal_id == principal.subject.removeprefix("api_key:")
+    return False
 
 
 def _authorize_target(*, action: AuthzAction, target: AuthzTarget, grants: Iterable[RoleGrant]) -> AuthzDecision:
     matching_grants = tuple(grant for grant in grants if _grant_applies(action=action, grant=grant, target=target))
-    if any(grant.effect is GrantEffect.DENY for grant in matching_grants):
+    if any(grant.effect == GrantEffect.DENY for grant in matching_grants):
         return AuthzDecision(False, "explicit_deny")
 
     if any(_role_allows(role=grant.role, action=action, target=target) for grant in matching_grants):
@@ -134,7 +149,7 @@ def _authorize_target(*, action: AuthzAction, target: AuthzTarget, grants: Itera
 def _grant_applies(*, action: AuthzAction, grant: RoleGrant, target: AuthzTarget) -> bool:
     if grant.node_type != target.node_type:
         return False
-    if action is AuthzAction.READ:
+    if action == AuthzAction.READ:
         return target.node_id in grant.path
     return grant.node_id in target.path
 
