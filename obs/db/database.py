@@ -426,7 +426,7 @@ ALTER TABLE hierarchy_trees ADD COLUMN display_depth INTEGER NOT NULL DEFAULT 0;
 """
 
 
-async def _migration_v34(conn: aiosqlite.Connection) -> None:
+async def _migration_v36(conn: aiosqlite.Connection) -> None:
     try:
         await conn.execute("ALTER TABLE hierarchy_trees ADD COLUMN source TEXT NOT NULL DEFAULT ''")
     except aiosqlite.OperationalError as exc:
@@ -599,7 +599,7 @@ MIGRATIONS: list[tuple[int, str | Callable]] = [
     # see V32 as the next applicable migration.
     (32, _migration_v32),
     (33, _migration_v33),
-    (34, _migration_v34),
+    (36, _migration_v36),
 ]
 
 
