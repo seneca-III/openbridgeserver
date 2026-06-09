@@ -659,8 +659,9 @@ MIGRATIONS: list[tuple[int, str | Callable]] = [
     # see V32 as the next applicable migration.
     (32, _migration_v32),
     (33, _migration_v33),
-    (36, _migration_v36),
+    (34, _MIGRATION_V34),
     (35, _MIGRATION_V35),
+    (36, _migration_v36),
 ]
 
 
