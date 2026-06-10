@@ -1478,18 +1478,50 @@ class TestSearchNodes:
     async def test_search_nodes_with_query(self):
         from obs.api.v1 import hierarchy as hier_api
 
-        search_row = _row(node_id="n1", node_name="Wohnzimmer", tree_id="t1", tree_name="EG")
+        search_row = _row(
+            node_id="n1",
+            node_name="Wohnzimmer",
+            tree_id="t1",
+            tree_name="EG",
+            display_depth=0,
+        )
 
         class _Db:
             async def fetchall(self, q, p=()):
                 if "LIKE" in q:
                     return [search_row]
-                # node_map query
-                return [_row(id="n1", parent_id=None, name="Wohnzimmer")]
+                # path query
+                return [_row(leaf_id="n1", cur_name="Wohnzimmer")]
 
         result = await hier_api.search_nodes(q="Wohnzimmer", limit=10, db=_Db(), _user="admin")
         assert len(result) == 1
         assert result[0].node_name == "Wohnzimmer"
+
+    @pytest.mark.asyncio
+    async def test_search_nodes_returns_descendant_for_hidden_ancestor_match(self):
+        from obs.api.v1 import hierarchy as hier_api
+
+        floor_row = _row(
+            node_id="floor",
+            node_name="EG",
+            tree_id="t1",
+            tree_name="Haus",
+            display_depth=2,
+        )
+
+        class _Db:
+            async def fetchall(self, q, p=()):
+                if "LIKE" in q:
+                    return [floor_row]
+                return [
+                    _row(leaf_id="floor", cur_name="Gebäude A"),
+                    _row(leaf_id="floor", cur_name="EG"),
+                ]
+
+        result = await hier_api.search_nodes(q="Gebäude A", limit=10, db=_Db(), _user="admin")
+        assert len(result) == 1
+        assert result[0].node_id == "floor"
+        assert result[0].path == ["Gebäude A", "EG"]
 
 
 class TestEtsImport:
@@ -1651,6 +1683,147 @@ class TestEtsImport:
             _user="admin",
         )
         assert result.nodes_created >= 3  # main + mid + GA
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_service_reusable(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        ga_rows = [
+            _row(address="1/2/3", name="Light", description="desc", dpt="1.001", main_group_name="Main", mid_group_name="Mid"),
+        ]
+        db = _DbStub(rows=ga_rows)
+
+        result = await create_ets_hierarchy(
+            db,
+            EtsImportRequest(tree_name="Reusable", mode="groups"),
+        )
+
+        assert result.tree_name == "Reusable"
+        assert result.nodes_created == 3
+        assert any(entry[0] == "executemany" and "hierarchy_nodes" in entry[1] for entry in db.committed)
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_buildings_auto_links_datapoints(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        class _Db:
+            def __init__(self):
+                self.node_rows = []
+                self.link_rows = []
+
+            async def fetchall(self, query, params=()):
+                if "FROM knx_locations" in query:
+                    return [
+                        _row(id="building", parent_id=None, name="Building", space_type="Building", sort_order=1),
+                        _row(id="room", parent_id="building", name="Room", space_type="Room", sort_order=2),
+                    ]
+                if "FROM knx_functions f" in query:
+                    return [_row(space_id="room", ga_address="1/2/3")]
+                if "FROM datapoints dp" in query:
+                    return [_row(id="dp-1")]
+                return []
+
+            async def execute_and_commit(self, query, params=()):
+                pass
+
+            async def executemany(self, query, rows):
+                if "hierarchy_nodes" in query:
+                    self.node_rows.extend(rows)
+                if "hierarchy_datapoint_links" in query:
+                    self.link_rows.extend(rows)
+
+            async def commit(self):
+                pass
+
+        db = _Db()
+        result = await create_ets_hierarchy(
+            db,
+            EtsImportRequest(tree_name="Buildings", mode="buildings", auto_link=True),
+        )
+
+        assert result.nodes_created == 2
+        assert result.links_created == 1
+        assert len(db.node_rows) == 2
+        assert len(db.link_rows) == 1
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_trades_auto_links_function_datapoints(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        class _Db:
+            def __init__(self):
+                self.node_rows = []
+                self.link_rows = []
+
+            async def fetchone(self, query, params=()):
+                return _row(cnt=1)
+
+            async def fetchall(self, query, params=()):
+                if "FROM knx_trades" in query:
+                    return [
+                        _row(id="trade", name="Lighting", parent_id=None, sort_order=1),
+                        _row(id="subtrade", name="Accent", parent_id="trade", sort_order=2),
+                    ]
+                if "FROM knx_functions WHERE trade_id" in query:
+                    return [_row(id="fn-1", name="Ceiling", usage_text="Lighting")]
+                if "FROM knx_function_ga_links" in query:
+                    return [_row(ga_address="1/2/3")]
+                if "FROM datapoints dp" in query:
+                    return [_row(id="dp-1")]
+                return []
+
+            async def execute_and_commit(self, query, params=()):
+                pass
+
+            async def executemany(self, query, rows):
+                if "hierarchy_nodes" in query:
+                    self.node_rows.extend(rows)
+                if "hierarchy_datapoint_links" in query:
+                    self.link_rows.extend(rows)
+
+            async def commit(self):
+                pass
+
+        db = _Db()
+        result = await create_ets_hierarchy(
+            db,
+            EtsImportRequest(tree_name="Trades", mode="trades", auto_link=True),
+        )
+
+        assert result.nodes_created == 4
+        assert result.links_created == 2
+        assert len(db.node_rows) == 4
+        assert len(db.link_rows) == 2
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_trades_without_function_links_creates_trade_nodes_only(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        class _Db:
+            async def fetchone(self, query, params=()):
+                return _row(cnt=0)
+
+            async def fetchall(self, query, params=()):
+                if "FROM knx_trades" in query:
+                    return [_row(id="trade-1", name="Lighting", parent_id=None, sort_order=1)]
+                raise AssertionError(f"unexpected fetchall: {query}")
+
+            async def execute_and_commit(self, query, params=()):
+                pass
+
+            async def executemany(self, query, rows):
+                pass
+
+            async def commit(self):
+                pass
+
+        result = await create_ets_hierarchy(
+            _Db(),
+            EtsImportRequest(tree_name="Trades", mode="trades", auto_link=True),
+        )
+
+        assert result.nodes_created == 1
+        assert result.links_created == 0
 
 
 # ============================================================================
@@ -2167,6 +2340,24 @@ class TestLogicManagerBasics:
         assert mgr._cron_tasks == {}
 
     @pytest.mark.asyncio
+    async def test_stop_tolerates_cron_task_mutating_task_cache(self):
+        mgr, _, _, _ = _make_logic_manager()
+        task1 = MagicMock()
+        task2 = MagicMock()
+
+        def _cancel_and_mutate():
+            mgr._cron_tasks.pop(("g2", "n2"), None)
+
+        task1.cancel.side_effect = _cancel_and_mutate
+        mgr._cron_tasks[("g1", "n1")] = task1
+        mgr._cron_tasks[("g2", "n2")] = task2
+
+        await mgr.stop()
+
+        task1.cancel.assert_called_once()
+        assert mgr._cron_tasks == {}
+
+    @pytest.mark.asyncio
     async def test_reload(self):
         mgr, db, _, _ = _make_logic_manager()
         db.fetchall = AsyncMock(return_value=[])
@@ -2368,6 +2559,45 @@ class TestLogicManagerValueEvent:
 
         await mgr._on_value_event(event)
         assert len(executed) == 0
+
+    @pytest.mark.asyncio
+    async def test_on_value_event_tolerates_graph_cache_mutation_during_iteration(self):
+        dp_id = uuid.uuid4()
+        flow1 = _make_flow(
+            nodes=[
+                {
+                    "id": "n1",
+                    "type": "datapoint_read",
+                    "position": {"x": 0, "y": 0},
+                    "data": {"datapoint_id": str(dp_id)},
+                }
+            ]
+        )
+        flow2 = _make_flow(
+            nodes=[
+                {
+                    "id": "n2",
+                    "type": "datapoint_read",
+                    "position": {"x": 0, "y": 0},
+                    "data": {"datapoint_id": str(dp_id)},
+                }
+            ]
+        )
+        mgr, _, _, _ = _make_logic_manager(graphs={"g1": ("G1", True, flow1), "g2": ("G2", True, flow2)})
+        executed = []
+
+        async def _execute_and_mutate(graph_id, *_args, **_kwargs):
+            executed.append(graph_id)
+            mgr._graphs.pop("g2", None)
+
+        mgr._execute_graph = _execute_and_mutate
+        event = MagicMock()
+        event.datapoint_id = dp_id
+        event.value = 1.0
+
+        await mgr._on_value_event(event)
+
+        assert executed == ["g1"]
 
 
 class TestLogicManagerHelpers:

@@ -9,6 +9,7 @@ client required.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -1029,6 +1030,12 @@ async def test_factory_reset_counts_rows(monkeypatch):
     assert result.datapoints_deleted == 10
     assert result.bindings_deleted == 5
     assert result.logic_graphs_deleted == 3
+    committed_sql = [query for query, _params in db.committed]
+    assert "DELETE FROM knx_space_device_links" in committed_sql
+    assert "DELETE FROM knx_co_ga_links" in committed_sql
+    assert "DELETE FROM knx_comm_objects" in committed_sql
+    assert "DELETE FROM knx_devices" in committed_sql
+    assert committed_sql.index("DELETE FROM knx_devices") < committed_sql.index("DELETE FROM knx_group_addresses")
 
 
 @pytest.mark.asyncio
@@ -1957,6 +1964,81 @@ async def test_page_has_datapoint_invalid_json():
     db = _DbStub(fetchone_result=_row({"page_config": "not-json{{{"}))
     result = await dp_api._page_has_datapoint(db, "page-1", uuid.uuid4())
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_page_has_datapoint_includes_nested_extra_datapoints():
+    """_page_has_datapoint includes Info widget extra_datapoints[].id."""
+    dp_id = uuid.uuid4()
+    page_config = {
+        "widgets": [
+            {
+                "type": "info",
+                "config": {
+                    "extra_datapoints": [
+                        {"id": str(dp_id), "label": "Eingang", "unit": "A", "decimals": 2},
+                    ],
+                },
+            },
+        ],
+    }
+    db = _DbStub(fetchone_result=_row({"page_config": json.dumps(page_config)}))
+
+    result = await dp_api._page_has_datapoint(db, "page-1", dp_id)
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_page_has_datapoint_includes_grundriss_mini_widget_datapoints():
+    """_page_has_datapoint includes Grundriss miniWidgets camelCase datapoint fields."""
+    dp_id = uuid.uuid4()
+    page_config = {
+        "widgets": [
+            {
+                "type": "grundriss",
+                "config": {
+                    "miniWidgets": [
+                        {
+                            "id": str(uuid.uuid4()),
+                            "widgetType": "display_value",
+                            "datapointId": str(dp_id),
+                            "statusDatapointId": str(uuid.uuid4()),
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+    db = _DbStub(fetchone_result=_row({"page_config": json.dumps(page_config)}))
+
+    result = await dp_api._page_has_datapoint(db, "page-1", dp_id)
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_page_has_datapoint_ignores_nested_non_datapoint_uuids():
+    """_page_has_datapoint does not allow arbitrary nested UUID strings."""
+    label_uuid = uuid.uuid4()
+    source_page_id = uuid.uuid4()
+    page_config = {
+        "widgets": [
+            {
+                "type": "info",
+                "config": {
+                    "source_page_id": str(source_page_id),
+                    "extra_datapoints": [
+                        {"id": "not-a-uuid", "label": str(label_uuid)},
+                    ],
+                },
+            },
+        ],
+    }
+    db = _DbStub(fetchone_result=_row({"page_config": json.dumps(page_config)}))
+
+    assert await dp_api._page_has_datapoint(db, "page-1", label_uuid) is False
+    assert await dp_api._page_has_datapoint(db, "page-1", source_page_id) is False
 
 
 @pytest.mark.asyncio
