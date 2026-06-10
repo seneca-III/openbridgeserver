@@ -450,7 +450,7 @@ async def _create_requested_hierarchies(
     modes: list[str],
     *,
     auto_link: bool,
-    replace_existing: bool,
+    replace_existing: bool = True,
     group_addresses: list[str] | None = None,
     unavailable_messages: dict[str, str] | None = None,
 ) -> list[HierarchyImportResult]:
@@ -510,7 +510,7 @@ async def _create_requested_hierarchies(
                 tree_name=created.tree_name,
                 nodes_created=created.nodes_created,
                 links_created=created.links_created,
-                trees_replaced=created.trees_replaced,
+                trees_replaced=getattr(created, "trees_replaced", 0),
                 message=created.message,
             )
         )
@@ -628,7 +628,7 @@ async def import_knxproj_file(
     try:
         await _import_knx_devices_and_comm_objects(file_bytes=content, password=pwd, db=db, now=now)
     except Exception as e:
-        await db.conn.rollback()
+        await db.rollback()
         logger.warning("KNX-Geräte-Import fehlgeschlagen (wird ignoriert): %s", e)
 
     # Import Gebäude/Gewerke structure — already parsed in parallel above
@@ -636,8 +636,9 @@ async def import_knxproj_file(
     functions_count = 0
     try:
         if locations_parse_ok:
-            await db.execute_and_commit("DELETE FROM knx_function_ga_links")
-            await db.execute_and_commit("DELETE FROM knx_functions")
+            if fn_records:
+                await db.execute_and_commit("DELETE FROM knx_function_ga_links")
+                await db.execute_and_commit("DELETE FROM knx_functions")
         if loc_records:
             await db.execute_and_commit("DELETE FROM knx_locations")
             await db.executemany(
