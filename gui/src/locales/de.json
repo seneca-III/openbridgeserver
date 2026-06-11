@@ -148,6 +148,7 @@
       "noLogicBindings": "Objekt wird in keinem Logic-Sheet verwendet",
       "logicReads": "Logik liest im verlinkten Blatt dieses Objekt",
       "logicWrites": "Logik schreibt im verlinkten Blatt auf dieses Objekt",
+      "openLogicSheet": "Logic-Sheet öffnen",
       "writtenSuccess": "Wert geschrieben.",
       "writeError": "Wert konnte nicht geschrieben werden.",
       "bindingModalEdit": "Binding bearbeiten",

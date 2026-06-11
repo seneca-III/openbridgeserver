@@ -148,6 +148,7 @@
       "noLogicBindings": "Data point is not used in any logic sheet",
       "logicReads": "Logic reads this data point in the linked sheet",
       "logicWrites": "Logic writes to this data point in the linked sheet",
+      "openLogicSheet": "Open logic sheet",
       "writtenSuccess": "Value written.",
       "writeError": "Value could not be written.",
       "bindingModalEdit": "Edit binding",
