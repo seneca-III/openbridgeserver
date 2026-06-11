@@ -458,10 +458,61 @@ class TestCreateApiKey:
         db = _DbStub()
         request = MagicMock()
         body = ApiKeyCreate(name="automation-key")
-        result = await auth_module.create_api_key.__wrapped__(request=request, body=body, _user="admin", db=db)
+        result = await auth_module.create_api_key.__wrapped__(
+            request=request,
+            body=body,
+            principal=auth_module.Principal(subject="admin", type="user", is_admin=True),
+            db=db,
+        )
         assert result.key.startswith("obs_")
         assert result.name == "automation-key"
         assert len(db.executed) == 1
+
+    @pytest.mark.asyncio
+    async def test_api_key_principal_creates_key_for_owner(self):
+        from obs.api.auth import ApiKeyCreate
+
+        db = _DbStub()
+        request = MagicMock()
+        body = ApiKeyCreate(name="replacement-key")
+        result = await auth_module.create_api_key.__wrapped__(
+            request=request,
+            body=body,
+            principal=auth_module.Principal(
+                subject="api_key:k1",
+                type="api_key",
+                is_admin=False,
+                owner="alice",
+            ),
+            db=db,
+        )
+
+        assert result.name == "replacement-key"
+        assert db.executed[0][1][3] == "alice"
+
+    @pytest.mark.asyncio
+    async def test_ownerless_api_key_principal_cannot_create_replacement_key(self):
+        from obs.api.auth import ApiKeyCreate
+
+        db = _DbStub()
+        request = MagicMock()
+        body = ApiKeyCreate(name="replacement-key")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_module.create_api_key.__wrapped__(
+                request=request,
+                body=body,
+                principal=auth_module.Principal(
+                    subject="api_key:k1",
+                    type="api_key",
+                    is_admin=False,
+                    owner=None,
+                ),
+                db=db,
+            )
+
+        assert exc_info.value.status_code == 403
+        assert db.executed == []
 
 
 # ---------------------------------------------------------------------------

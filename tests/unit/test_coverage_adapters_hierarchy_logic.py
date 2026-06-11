@@ -1766,6 +1766,177 @@ class TestEtsImport:
         assert result == 0
 
     @pytest.mark.asyncio
+    async def test_replace_existing_ets_trees_deletes_auto_trees(self):
+        from obs.api.v1.services.hierarchy_import import replace_existing_ets_trees
+
+        class _Db:
+            def __init__(self):
+                self.committed = []
+
+            async def fetchall(self, query, params=()):
+                assert query == "SELECT id FROM hierarchy_trees WHERE source=?"
+                assert params == ("ets_import:groups",)
+                return [_row(id="tree-1"), _row(id="tree-2")]
+
+            async def execute_and_commit(self, query, params=()):
+                self.committed.append((query, tuple(params)))
+
+        db = _Db()
+        result = await replace_existing_ets_trees(db, "groups")
+
+        assert result == 2
+        assert len(db.committed) == 1
+        query, params = db.committed[0]
+        assert query == "DELETE FROM hierarchy_trees WHERE id IN (?,?)"
+        assert params == ("tree-1", "tree-2")
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_mid_skips_invalid_group_address(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        db = _DbStub(
+            rows=[
+                _row(address="1", name="Bad", description="", dpt="1.001", main_group_name="Main", mid_group_name="Mid"),
+            ]
+        )
+
+        result = await create_ets_hierarchy(
+            db,
+            EtsImportRequest(tree_name="Mid Invalid", mode="mid"),
+        )
+
+        assert result.nodes_created == 0
+        assert result.links_created == 0
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_groups_skips_non_three_part_address(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        db = _DbStub(
+            rows=[
+                _row(address="1/2", name="Bad", description="", dpt="1.001", main_group_name="Main", mid_group_name="Mid"),
+            ]
+        )
+
+        result = await create_ets_hierarchy(
+            db,
+            EtsImportRequest(tree_name="Groups Invalid", mode="groups"),
+        )
+
+        assert result.nodes_created == 0
+        assert result.links_created == 0
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_buildings_auto_link_skips_unknown_space(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        class _Db:
+            def __init__(self):
+                self.datapoint_queries = 0
+
+            async def fetchall(self, query, params=()):
+                if "FROM knx_locations" in query:
+                    return [_row(id="building", parent_id=None, name="Building", space_type="Building", sort_order=1)]
+                if "FROM knx_functions f" in query:
+                    return [_row(space_id="missing", ga_address="1/2/3")]
+                if "FROM datapoints dp" in query:
+                    self.datapoint_queries += 1
+                    return []
+                return []
+
+            async def execute_and_commit(self, query, params=()):
+                pass
+
+            async def executemany(self, query, rows):
+                pass
+
+            async def commit(self):
+                pass
+
+        db = _Db()
+        result = await create_ets_hierarchy(
+            db,
+            EtsImportRequest(tree_name="Buildings", mode="buildings", auto_link=True),
+        )
+
+        assert result.nodes_created == 1
+        assert result.links_created == 0
+        assert db.datapoint_queries == 0
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_trades_without_auto_link_uses_function_tree_only(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        class _Db:
+            async def fetchone(self, query, params=()):
+                return _row(cnt=1)
+
+            async def fetchall(self, query, params=()):
+                if "FROM knx_trades" in query:
+                    return [_row(id="trade-1", name="Lighting", parent_id=None, sort_order=1)]
+                if "FROM knx_functions WHERE trade_id" in query:
+                    return [_row(id="fn-1", name="Ceiling", usage_text="Lighting")]
+                return []
+
+            async def execute_and_commit(self, query, params=()):
+                pass
+
+            async def executemany(self, query, rows):
+                pass
+
+            async def commit(self):
+                pass
+
+        result = await create_ets_hierarchy(
+            _Db(),
+            EtsImportRequest(tree_name="Trades", mode="trades", auto_link=False),
+        )
+
+        assert result.nodes_created == 2
+        assert result.links_created == 0
+
+    @pytest.mark.asyncio
+    async def test_create_ets_hierarchy_trades_without_function_gas_skips_link(self):
+        from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
+
+        class _Db:
+            def __init__(self):
+                self.datapoint_queries = 0
+
+            async def fetchone(self, query, params=()):
+                return _row(cnt=1)
+
+            async def fetchall(self, query, params=()):
+                if "FROM knx_trades" in query:
+                    return [_row(id="trade-1", name="Lighting", parent_id=None, sort_order=1)]
+                if "FROM knx_functions WHERE trade_id" in query:
+                    return [_row(id="fn-1", name="Ceiling", usage_text="Lighting")]
+                if "FROM knx_function_ga_links" in query:
+                    return [_row(ga_address="")]
+                if "FROM datapoints dp" in query:
+                    self.datapoint_queries += 1
+                return []
+
+            async def execute_and_commit(self, query, params=()):
+                pass
+
+            async def executemany(self, query, rows):
+                pass
+
+            async def commit(self):
+                pass
+
+        db = _Db()
+        result = await create_ets_hierarchy(
+            db,
+            EtsImportRequest(tree_name="Trades", mode="trades", auto_link=True),
+        )
+
+        assert result.nodes_created == 2
+        assert result.links_created == 0
+        assert db.datapoint_queries == 0
+
+    @pytest.mark.asyncio
     async def test_create_ets_hierarchy_buildings_auto_links_datapoints(self):
         from obs.api.v1.services.hierarchy_import import EtsImportRequest, create_ets_hierarchy
 
