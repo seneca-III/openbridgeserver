@@ -70,17 +70,119 @@ async def _check_ssrf(
 
 
 async def _page_has_weather_url(db: Database, page_id: str, url: str) -> bool:
+    return await _page_has_weather_url_for_session(db, page_id, url, session_token=None)
+
+
+async def _load_page_config(db: Database, page_id: str) -> PageConfig | None:
     row = await db.fetchone("SELECT page_config FROM visu_nodes WHERE id = ? AND type = 'PAGE'", (page_id,))
     if not row or not row["page_config"]:
-        return False
+        return None
 
     try:
-        page = PageConfig.model_validate_json(row["page_config"])
+        return PageConfig.model_validate_json(row["page_config"])
     except Exception:
+        return None
+
+
+def _widget_type_key(widget_type: object) -> str:
+    return str(widget_type or "").replace("_", "").casefold()
+
+
+async def _source_page_allows_session(db: Database, page_id: str, session_token: str | None) -> bool:
+    from obs.api.v1.visu import _resolve_access_with_node
+
+    access, defining_node_id = await _resolve_access_with_node(db, page_id)
+    if access in ("public", "readonly"):
+        return True
+    if access == "protected" and session_token:
+        return validate_session(session_token, defining_node_id or page_id)
+    return False
+
+
+async def _widget_has_weather_url(
+    db: Database,
+    *,
+    widget_type: object,
+    config: dict[str, object],
+    requested_url: str,
+    session_token: str | None,
+    visited_refs: set[tuple[str, str]],
+) -> bool:
+    widget_key = _widget_type_key(widget_type)
+    if widget_key == "wetter":
+        return str(config.get("url") or "").strip() == requested_url
+
+    if widget_key == "grundriss":
+        mini_widgets = config.get("miniWidgets")
+        if not isinstance(mini_widgets, list):
+            return False
+        for mini_widget in mini_widgets:
+            if not isinstance(mini_widget, dict):
+                continue
+            mini_config = mini_widget.get("config")
+            if not isinstance(mini_config, dict):
+                mini_config = {}
+            if await _widget_has_weather_url(
+                db,
+                widget_type=mini_widget.get("widgetType"),
+                config=mini_config,
+                requested_url=requested_url,
+                session_token=session_token,
+                visited_refs=visited_refs,
+            ):
+                return True
+        return False
+
+    if widget_key != "widgetref":
+        return False
+
+    source_page_id = str(config.get("source_page_id") or "").strip()
+    source_widget_name = str(config.get("source_widget_name") or "").strip()
+    if not source_page_id or not source_widget_name:
+        return False
+    ref_key = (source_page_id, source_widget_name)
+    if ref_key in visited_refs:
+        return False
+    visited_refs.add(ref_key)
+
+    if not await _source_page_allows_session(db, source_page_id, session_token):
+        return False
+
+    source_page = await _load_page_config(db, source_page_id)
+    if source_page is None:
+        return False
+
+    source_widget = next((candidate for candidate in source_page.widgets if candidate.name == source_widget_name), None)
+    if source_widget is None:
+        return False
+    return await _widget_has_weather_url(
+        db,
+        widget_type=source_widget.type,
+        config=source_widget.config,
+        requested_url=requested_url,
+        session_token=session_token,
+        visited_refs=visited_refs,
+    )
+
+
+async def _page_has_weather_url_for_session(db: Database, page_id: str, url: str, *, session_token: str | None) -> bool:
+    page = await _load_page_config(db, page_id)
+    if page is None:
         return False
 
     requested_url = url.strip()
-    return any(widget.type == "Wetter" and str(widget.config.get("url") or "").strip() == requested_url for widget in page.widgets)
+    visited_refs: set[tuple[str, str]] = set()
+    for widget in page.widgets:
+        if await _widget_has_weather_url(
+            db,
+            widget_type=widget.type,
+            config=widget.config,
+            requested_url=requested_url,
+            session_token=session_token,
+            visited_refs=visited_refs,
+        ):
+            return True
+    return False
 
 
 async def _require_weather_access(
@@ -103,7 +205,7 @@ async def _require_weather_access(
     validate_id = defining_node_id or page_id
     if access != "protected" or not validate_session(session_token, validate_id):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Valid session token required")
-    if not await _page_has_weather_url(db, page_id, url):
+    if not await _page_has_weather_url_for_session(db, page_id, url, session_token=session_token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Weather URL is not configured on the page")
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import socket
 from typing import Any
 
@@ -36,6 +37,43 @@ class _ClientStub:
 
     async def get(self, _url: str, **_kwargs):
         return self._response
+
+
+class _PageDbStub:
+    def __init__(self, pages: dict[str, dict[str, object]]):
+        self._pages = pages
+
+    async def fetchone(self, _query: str, params: tuple[str, ...]):
+        page_id = params[0]
+        page = self._pages.get(page_id)
+        if page is None:
+            return None
+        return {"page_config": json.dumps(page)}
+
+
+def _page_config_with_widgets(widgets: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "grid_cols": 12,
+        "grid_row_height": 80,
+        "grid_cell_width": 80,
+        "background": None,
+        "widgets": widgets,
+    }
+
+
+def _weather_widget(url: str, *, name: str = "Weather") -> dict[str, object]:
+    return {
+        "id": name,
+        "name": name,
+        "type": "Wetter",
+        "datapoint_id": None,
+        "status_datapoint_id": None,
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5,
+        "config": {"url": url},
+    }
 
 
 @pytest.mark.asyncio
@@ -185,3 +223,81 @@ async def test_fetch_weather_httpx_request_error_returns_502(monkeypatch):
 
     assert exc.value.status_code == 502
     assert "nicht erreichbar" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_page_has_weather_url_finds_widget_ref_target(monkeypatch):
+    db = _PageDbStub(
+        {
+            "current": _page_config_with_widgets(
+                [
+                    {
+                        "id": "ref",
+                        "name": "Reference",
+                        "type": "WidgetRef",
+                        "datapoint_id": None,
+                        "status_datapoint_id": None,
+                        "x": 0,
+                        "y": 0,
+                        "w": 6,
+                        "h": 5,
+                        "config": {"source_page_id": "source", "source_widget_name": "Outdoor weather"},
+                    }
+                ]
+            ),
+            "source": _page_config_with_widgets([_weather_widget("http://example.com/weather", name="Outdoor weather")]),
+        }
+    )
+
+    async def _allow(_db, _page_id, _session_token):
+        return True
+
+    monkeypatch.setattr(weather, "_source_page_allows_session", _allow)
+
+    assert await weather._page_has_weather_url_for_session(
+        db,
+        "current",
+        "http://example.com/weather",
+        session_token="session-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_page_has_weather_url_finds_grundriss_mini_widget():
+    db = _PageDbStub(
+        {
+            "current": _page_config_with_widgets(
+                [
+                    {
+                        "id": "grundriss",
+                        "name": "Floor plan",
+                        "type": "Grundriss",
+                        "datapoint_id": None,
+                        "status_datapoint_id": None,
+                        "x": 0,
+                        "y": 0,
+                        "w": 6,
+                        "h": 5,
+                        "config": {
+                            "miniWidgets": [
+                                {
+                                    "id": "mini-weather",
+                                    "widgetType": "Wetter",
+                                    "config": {"url": "http://example.com/weather"},
+                                    "datapointId": None,
+                                    "statusDatapointId": None,
+                                }
+                            ]
+                        },
+                    }
+                ]
+            )
+        }
+    )
+
+    assert await weather._page_has_weather_url_for_session(
+        db,
+        "current",
+        "http://example.com/weather",
+        session_token="session-1",
+    )

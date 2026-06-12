@@ -170,6 +170,57 @@ async def _create_weather_page(
     return page_id
 
 
+async def _create_page_with_widgets(
+    client,
+    auth_headers: dict[str, str],
+    *,
+    access: str,
+    widgets: list[dict[str, object]],
+    access_pin: str | None = None,
+) -> str:
+    payload: dict[str, object] = {
+        "name": f"weather-page-{uuid.uuid4().hex[:8]}",
+        "type": "PAGE",
+        "order": 999,
+        "access": access,
+    }
+    if access_pin is not None:
+        payload["access_pin"] = access_pin
+
+    create_resp = await client.post("/api/v1/visu/nodes", json=payload, headers=auth_headers)
+    assert create_resp.status_code == 201, create_resp.text
+    page_id = create_resp.json()["id"]
+
+    save_resp = await client.put(
+        f"/api/v1/visu/pages/{page_id}",
+        json={
+            "grid_cols": 12,
+            "grid_row_height": 80,
+            "grid_cell_width": 80,
+            "background": None,
+            "widgets": widgets,
+        },
+        headers=auth_headers,
+    )
+    assert save_resp.status_code in (200, 204), save_resp.text
+    return page_id
+
+
+def _weather_widget(weather_url: str, *, name: str = "Weather") -> dict[str, object]:
+    return {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "type": "Wetter",
+        "datapoint_id": None,
+        "status_datapoint_id": None,
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5,
+        "config": {"url": weather_url},
+    }
+
+
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
 
@@ -251,6 +302,108 @@ async def test_fetch_rejects_public_visu_page_without_login(client, auth_headers
         )
         assert resp.status_code == 401
     finally:
+        await client.delete(f"/api/v1/visu/nodes/{page_id}", headers=auth_headers)
+
+
+async def test_fetch_allows_protected_visu_session_for_widget_ref_weather_url(client, auth_headers, bypass_ssrf):
+    pin = "1234"
+    srv = _MockWeatherServer()
+    source_page_id = await _create_page_with_widgets(
+        client,
+        auth_headers,
+        access="public",
+        widgets=[_weather_widget(f"{srv.base_url}/weather", name="Outdoor weather")],
+    )
+    page_id = await _create_page_with_widgets(
+        client,
+        auth_headers,
+        access="protected",
+        access_pin=pin,
+        widgets=[
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Weather reference",
+                "type": "WidgetRef",
+                "datapoint_id": None,
+                "status_datapoint_id": None,
+                "x": 0,
+                "y": 0,
+                "w": 6,
+                "h": 5,
+                "config": {"source_page_id": source_page_id, "source_widget_name": "Outdoor weather"},
+            }
+        ],
+    )
+    try:
+        auth_resp = await client.post(f"/api/v1/visu/nodes/{page_id}/auth", json={"pin": pin})
+        assert auth_resp.status_code == 200, auth_resp.text
+        session_token = auth_resp.json()["session_token"]
+
+        resp = await client.get(
+            f"/api/v1/weather/fetch?url={srv.base_url}/weather",
+            headers={"X-Page-Id": page_id, "X-Session-Token": session_token},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["timezone"] == "Europe/Zurich"
+    finally:
+        srv.shutdown()
+        await client.delete(f"/api/v1/visu/nodes/{page_id}", headers=auth_headers)
+        await client.delete(f"/api/v1/visu/nodes/{source_page_id}", headers=auth_headers)
+
+
+async def test_fetch_allows_protected_visu_session_for_grundriss_weather_url(client, auth_headers, bypass_ssrf):
+    pin = "1234"
+    srv = _MockWeatherServer()
+    page_id = await _create_page_with_widgets(
+        client,
+        auth_headers,
+        access="protected",
+        access_pin=pin,
+        widgets=[
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Floor plan",
+                "type": "Grundriss",
+                "datapoint_id": None,
+                "status_datapoint_id": None,
+                "x": 0,
+                "y": 0,
+                "w": 6,
+                "h": 5,
+                "config": {
+                    "image": "data:image/png;base64,",
+                    "miniWidgets": [
+                        {
+                            "id": str(uuid.uuid4()),
+                            "label": "Weather",
+                            "widgetType": "Wetter",
+                            "config": {"url": f"{srv.base_url}/weather"},
+                            "datapointId": None,
+                            "statusDatapointId": None,
+                            "x": 100,
+                            "y": 100,
+                            "wPx": 240,
+                            "hPx": 160,
+                            "visible": True,
+                        }
+                    ],
+                },
+            }
+        ],
+    )
+    try:
+        auth_resp = await client.post(f"/api/v1/visu/nodes/{page_id}/auth", json={"pin": pin})
+        assert auth_resp.status_code == 200, auth_resp.text
+        session_token = auth_resp.json()["session_token"]
+
+        resp = await client.get(
+            f"/api/v1/weather/fetch?url={srv.base_url}/weather",
+            headers={"X-Page-Id": page_id, "X-Session-Token": session_token},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["timezone"] == "Europe/Zurich"
+    finally:
+        srv.shutdown()
         await client.delete(f"/api/v1/visu/nodes/{page_id}", headers=auth_headers)
 
 
