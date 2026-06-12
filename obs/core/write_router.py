@@ -123,6 +123,8 @@ class WriteRouter:
             value = payload_value if payload_was_json else raw_payload
         elif dt.name == "STRING" and not payload_was_json:
             value = raw_payload
+        elif dt.name in {"DATE", "TIME", "DATETIME"} and not payload_was_json:
+            value = dt.mqtt_deserializer(json.dumps(raw_payload))
         else:
             try:
                 value = dt.mqtt_deserializer(json.dumps(payload_value) if payload_was_json else raw_payload)

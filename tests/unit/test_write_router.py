@@ -357,6 +357,46 @@ async def test_handle_preserves_raw_string_payload_for_writable_binding():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("data_type", "raw_payload", "expected"),
+    [
+        ("DATE", "2026-06-12", datetime.date(2026, 6, 12)),
+        ("TIME", "10:30:00", datetime.time(10, 30, 0)),
+        ("DATETIME", "2026-06-12T10:30:00+00:00", datetime.datetime(2026, 6, 12, 10, 30, 0, tzinfo=datetime.UTC)),
+    ],
+)
+async def test_handle_preserves_raw_temporal_payload_for_bindingless_datapoint(data_type, raw_payload, expected):
+    dp_id = uuid.uuid4()
+    bus = SimpleNamespace(publish=AsyncMock())
+    router = _make_router([])
+    router._bus = bus
+    router._registry = SimpleNamespace(get=lambda _dp_id: SimpleNamespace(name="Internal", data_type=data_type))
+
+    await router.handle(dp_id, raw_payload)
+
+    bus.publish.assert_awaited_once()
+    event = bus.publish.await_args.args[0]
+    assert event.datapoint_id == dp_id
+    assert event.value == expected
+    assert event.quality == "good"
+
+
+@pytest.mark.asyncio
+async def test_handle_preserves_raw_temporal_payload_for_writable_binding():
+    dp_id = uuid.uuid4()
+    bus = SimpleNamespace(publish=AsyncMock())
+    router = _make_router([_row(datapoint_id=str(dp_id), direction="DEST")])
+    router._bus = bus
+    router._registry = SimpleNamespace(get=lambda _dp_id: SimpleNamespace(name="Clock", data_type="TIME"))
+    router._write_to_dest_bindings = AsyncMock()
+
+    await router.handle(dp_id, "10:30:00")
+
+    router._write_to_dest_bindings.assert_awaited_once_with(dp_id, datetime.time(10, 30, 0), skip_binding_id=None)
+    bus.publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_time_value_event_routes_to_mqtt_raw_payload_without_template(monkeypatch):
     dp_id = uuid.uuid4()
     binding = make_binding({"topic": "clock/time"}, direction="DEST")
