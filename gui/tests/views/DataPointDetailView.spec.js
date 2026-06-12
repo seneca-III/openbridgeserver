@@ -89,4 +89,52 @@ describe('DataPointDetailView', () => {
     expect(wrapper.find('input[type="text"]').exists()).toBe(false)
     expect(wrapper.findAll('button').some(button => button.text() === 'Schreiben')).toBe(false)
   })
+
+  it('does not expose the write form while bindings are still loading', async () => {
+    let resolveBindings
+    apiMocks.dpApi.listBindings.mockReturnValue(new Promise(resolve => { resolveBindings = resolve }))
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('input[type="text"]').exists()).toBe(false)
+    expect(wrapper.findAll('button').some(button => button.text() === 'Schreiben')).toBe(false)
+
+    resolveBindings({ data: [] })
+    await flushPromises()
+
+    expect(wrapper.find('input[type="text"]').exists()).toBe(true)
+  })
+
+  it('rejects invalid temporal write values before posting', async () => {
+    apiMocks.dpApi.get.mockResolvedValue({
+      data: {
+        id: 'dp-internal',
+        name: 'Internal Date',
+        data_type: 'DATE',
+        unit: null,
+        tags: [],
+        mqtt_topic: 'dp/dp-internal/value',
+        mqtt_alias: null,
+        persist_value: true,
+        record_history: true,
+        value: null,
+        quality: 'uncertain',
+        created_at: '2026-06-11T10:00:00+00:00',
+        updated_at: '2026-06-11T10:00:00+00:00',
+      },
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const input = wrapper.find('input[type="text"]')
+    await input.setValue('2026-02-31')
+
+    const writeButton = wrapper.findAll('button').find(button => button.text() === 'Schreiben')
+    await writeButton.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.dpApi.writeValue).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Bitte ein gültiges Datum oder eine gültige Zeit eingeben.')
+  })
 })

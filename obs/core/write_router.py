@@ -62,6 +62,17 @@ def _cached_value_equals(current_value: Any, cached_value: Any) -> bool:
     return current_value == cached_value
 
 
+def _unwrap_mqtt_set_payload(raw_payload: str) -> tuple[Any, bool]:
+    try:
+        payload = json.loads(raw_payload)
+    except Exception:
+        return raw_payload, False
+
+    if isinstance(payload, dict) and "v" in payload:
+        return payload["v"], True
+    return payload, True
+
+
 class WriteRouter:
     def __init__(self, db: Any, registry: Any, event_bus: Any | None = None) -> None:
         from obs.core.registry import DataPointRegistry
@@ -107,14 +118,14 @@ class WriteRouter:
             return
 
         dt = DataTypeRegistry.get(dp.data_type)
+        payload_value, payload_was_json = _unwrap_mqtt_set_payload(raw_payload)
         if dt.name == "UNKNOWN":
-            try:
-                value = json.loads(raw_payload)
-            except Exception:
-                value = raw_payload
+            value = payload_value if payload_was_json else raw_payload
+        elif dt.name == "STRING" and not payload_was_json:
+            value = raw_payload
         else:
             try:
-                value = dt.mqtt_deserializer(raw_payload)
+                value = dt.mqtt_deserializer(json.dumps(payload_value) if payload_was_json else raw_payload)
             except Exception:
                 logger.warning(
                     "WriteRouter: invalid MQTT set payload for dp=%s data_type=%s payload=%r",

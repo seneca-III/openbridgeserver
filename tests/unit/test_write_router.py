@@ -308,6 +308,55 @@ async def test_handle_publishes_value_event_for_bindingless_datapoint():
 
 
 @pytest.mark.asyncio
+async def test_handle_unwraps_documented_value_payload_for_bindingless_datapoint():
+    dp_id = uuid.uuid4()
+    bus = SimpleNamespace(publish=AsyncMock())
+    router = _make_router([])
+    router._bus = bus
+    router._registry = SimpleNamespace(get=lambda _dp_id: SimpleNamespace(name="Internal", data_type="BOOLEAN"))
+
+    await router.handle(dp_id, '{"v": false, "q": "good"}')
+
+    bus.publish.assert_awaited_once()
+    event = bus.publish.await_args.args[0]
+    assert event.datapoint_id == dp_id
+    assert event.value is False
+    assert event.quality == "good"
+
+
+@pytest.mark.asyncio
+async def test_handle_preserves_raw_string_payload_for_bindingless_datapoint():
+    dp_id = uuid.uuid4()
+    bus = SimpleNamespace(publish=AsyncMock())
+    router = _make_router([])
+    router._bus = bus
+    router._registry = SimpleNamespace(get=lambda _dp_id: SimpleNamespace(name="Internal", data_type="STRING"))
+
+    await router.handle(dp_id, "hello")
+
+    bus.publish.assert_awaited_once()
+    event = bus.publish.await_args.args[0]
+    assert event.datapoint_id == dp_id
+    assert event.value == "hello"
+    assert event.quality == "good"
+
+
+@pytest.mark.asyncio
+async def test_handle_preserves_raw_string_payload_for_writable_binding():
+    dp_id = uuid.uuid4()
+    bus = SimpleNamespace(publish=AsyncMock())
+    router = _make_router([_row(datapoint_id=str(dp_id), direction="DEST")])
+    router._bus = bus
+    router._registry = SimpleNamespace(get=lambda _dp_id: SimpleNamespace(name="Actuator", data_type="STRING"))
+    router._write_to_dest_bindings = AsyncMock()
+
+    await router.handle(dp_id, "hello")
+
+    router._write_to_dest_bindings.assert_awaited_once_with(dp_id, "hello", skip_binding_id=None)
+    bus.publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_time_value_event_routes_to_mqtt_raw_payload_without_template(monkeypatch):
     dp_id = uuid.uuid4()
     binding = make_binding({"topic": "clock/time"}, direction="DEST")

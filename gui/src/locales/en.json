@@ -132,6 +132,7 @@
       "writeValue": "Write value",
       "write": "Write",
       "invalidNumber": "Please enter a valid number.",
+      "invalidTemporal": "Please enter a valid date or time.",
       "noWritableBinding": "No writable binding available.",
       "properties": "Properties",
       "datatype": "Data type",

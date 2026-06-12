@@ -132,6 +132,7 @@
       "writeValue": "Wert schreiben",
       "write": "Schreiben",
       "invalidNumber": "Bitte eine gültige Zahl eingeben.",
+      "invalidTemporal": "Bitte ein gültiges Datum oder eine gültige Zeit eingeben.",
       "noWritableBinding": "Kein schreibbares Binding vorhanden.",
       "properties": "Eigenschaften",
       "datatype": "Datentyp",

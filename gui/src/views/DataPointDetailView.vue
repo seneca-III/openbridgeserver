@@ -29,7 +29,8 @@
         <div v-if="dp.mqtt_alias" class="font-mono text-xs text-slate-600 break-all">{{ dp.mqtt_alias }}</div>
         <div class="border-t border-slate-200 dark:border-slate-700 pt-4 mt-1">
           <div class="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{{ $t('datapoints.detail.writeValue') }}</div>
-          <div v-if="canWriteValue" class="flex flex-wrap items-center gap-2">
+          <div v-if="bindingsLoading" class="flex items-center py-1"><Spinner size="sm" /></div>
+          <div v-else-if="canWriteValue" class="flex flex-wrap items-center gap-2">
             <template v-if="dp.data_type === 'BOOLEAN'">
               <button
                 @click="writeDetailValue(true)"
@@ -212,6 +213,7 @@ const ws      = useWebSocketStore()
 const dp                  = ref(null)
 const bindings            = ref([])
 const bindingsLoading     = ref(false)
+const bindingsLoaded      = ref(false)
 const logicUsages         = ref([])
 const logicUsagesLoading  = ref(false)
 const showEdit            = ref(false)
@@ -233,7 +235,7 @@ const displayVal = computed(() => {
 })
 const activeBindings = computed(() => bindings.value.filter(b => b.enabled))
 const canWriteValue = computed(() =>
-  activeBindings.value.length === 0 || activeBindings.value.some(b => ['DEST', 'BOTH'].includes(b.direction))
+  bindingsLoaded.value && (activeBindings.value.length === 0 || activeBindings.value.some(b => ['DEST', 'BOTH'].includes(b.direction)))
 )
 watch(currentRawValue, (value) => {
   if (!writeBusy.value && value !== undefined && value !== null) writeDraft.value = String(value)
@@ -254,7 +256,12 @@ onUnmounted(() => unsubWs?.())
 
 async function loadBindings() {
   bindingsLoading.value = true
-  try { const { data } = await dpApi.listBindings(props.id); bindings.value = data }
+  bindingsLoaded.value = false
+  try {
+    const { data } = await dpApi.listBindings(props.id)
+    bindings.value = data
+    bindingsLoaded.value = true
+  }
   finally { bindingsLoading.value = false }
 }
 
@@ -283,7 +290,35 @@ function coerceWriteValue(raw) {
   if (dp.value?.data_type === 'BOOLEAN') return raw === true || raw === 'true' || raw === '1' || raw === 1
   if (dp.value?.data_type === 'INTEGER') return Number.parseInt(raw, 10)
   if (dp.value?.data_type === 'FLOAT') return Number.parseFloat(raw)
+  if (dp.value?.data_type === 'DATE') return coerceDate(raw)
+  if (dp.value?.data_type === 'TIME') return coerceTime(raw)
+  if (dp.value?.data_type === 'DATETIME') return coerceDateTime(raw)
   return raw
+}
+
+function coerceDate(raw) {
+  const value = String(raw).trim()
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) throw new Error(t('datapoints.detail.invalidTemporal'))
+  const [, year, month, day] = match.map(Number)
+  const dt = new Date(Date.UTC(year, month - 1, day))
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
+    throw new Error(t('datapoints.detail.invalidTemporal'))
+  }
+  return value
+}
+
+function coerceTime(raw) {
+  const value = String(raw).trim()
+  const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(?:\.\d{1,6})?)?$/)
+  if (!match) throw new Error(t('datapoints.detail.invalidTemporal'))
+  return value
+}
+
+function coerceDateTime(raw) {
+  const value = String(raw).trim()
+  if (!value || Number.isNaN(Date.parse(value))) throw new Error(t('datapoints.detail.invalidTemporal'))
+  return value
 }
 
 async function writeDetailValue(raw) {
