@@ -875,12 +875,16 @@ class TestApiClientVariables:
                 [
                     {"datapoint_id": f" {dp_id} ", "datapoint_name": "Name"},
                     "invalid",
-                    {"datapoint_id": ""},
+                    {"slot": 7, "datapoint_id": str(dp_id), "datapoint_name": "SlotName"},
+                    {"slot": 0, "datapoint_id": ""},
                 ]
             )
         )
 
-        assert variables == {1: {"datapoint_id": str(dp_id), "datapoint_name": "Name"}}
+        assert variables == {
+            1: {"datapoint_id": str(dp_id), "datapoint_name": "Name"},
+            7: {"datapoint_id": str(dp_id), "datapoint_name": "SlotName"},
+        }
         assert _normalise_api_client_variables("not-json") == {}
         assert _normalise_api_client_variables({"datapoint_id": str(dp_id)}) == {}
 
@@ -968,6 +972,42 @@ class TestApiClientVariables:
             "Content-Type": "text/plain",
             "Host": "example.com",
         }
+
+    @patch("obs.logic.manager.httpx.AsyncClient")
+    @patch(
+        "obs.security.url_targets.socket.getaddrinfo",
+        return_value=[(None, None, None, None, ("93.184.216.34", 80))],
+    )
+    def test_explicit_variable_slot_survives_array_compaction(self, _mock_resolve, mock_client_cls):
+        captured: dict = {}
+        mock_client = AsyncMock()
+        mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        async def _capture(method, url, **kwargs):
+            captured["url"] = url
+            return _mock_response(200, {"ok": True})
+
+        mock_client.request = _capture
+
+        dp2 = uuid.uuid4()
+        manager = _make_manager()
+        manager._registry.get_value.return_value = self._state("still-obs2")
+        data = {
+            "url": "http://example.com/api/###OBS2###",
+            "method": "GET",
+            "variables": [{"slot": 2, "datapoint_id": str(dp2), "datapoint_name": "Second"}],
+        }
+        n = node("ac", "api_client", data)
+        flow = _flow([n])
+        graph_id = "g-vars-slot"
+        manager._graphs[graph_id] = ("t", True, flow)
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            outputs = asyncio.run(manager._execute_graph(graph_id, "t", flow, {"ac": {"trigger": True}}))
+
+        assert outputs["ac"]["success"] is True
+        assert captured["url"] == "http://93.184.216.34/api/still-obs2"
 
     @patch("obs.logic.manager.httpx.AsyncClient")
     def test_missing_variable_configuration_sets_error_output(self, mock_client_cls):

@@ -120,10 +120,17 @@ def _normalise_api_client_variables(raw: Any) -> dict[int, dict[str, str]]:
     for idx, entry in enumerate(raw, start=1):
         if not isinstance(entry, dict):
             continue
+        slot_raw = entry.get("slot", idx)
+        try:
+            slot = int(slot_raw)
+        except (TypeError, ValueError):
+            slot = idx
+        if slot < 1:
+            slot = idx
         datapoint_id = str(entry.get("datapoint_id") or "").strip()
         if not datapoint_id:
             continue
-        variables[idx] = {
+        variables[slot] = {
             "datapoint_id": datapoint_id,
             "datapoint_name": str(entry.get("datapoint_name") or datapoint_id),
         }

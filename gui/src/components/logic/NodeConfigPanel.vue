@@ -319,14 +319,14 @@
         </div>
         <div
           v-for="(variable, i) in apiVariables"
-          :key="i"
+          :key="variable.slot || i"
           class="border border-slate-700 rounded-lg p-3 flex flex-col gap-2 bg-slate-900/40"
           :data-testid="`api-client-variable-${i}`"
         >
           <div class="flex items-center justify-between gap-2">
             <div class="min-w-0">
-              <span class="text-xs font-semibold text-teal-400">OBS{{ i + 1 }}</span>
-              <code class="ml-2 text-xs text-slate-400 break-all">###OBS{{ i + 1 }}###</code>
+              <span class="text-xs font-semibold text-teal-400">OBS{{ variable.slot || i + 1 }}</span>
+              <code class="ml-2 text-xs text-slate-400 break-all">###OBS{{ variable.slot || i + 1 }}###</code>
             </div>
             <button
               type="button"
@@ -1513,10 +1513,14 @@ function fieldLabel(nodeType, fieldKey, fallback) {
 
 function normaliseApiVariables(raw) {
   return Array.isArray(raw)
-    ? raw.map(v => ({
-        datapoint_id: v?.datapoint_id || '',
-        datapoint_name: v?.datapoint_name || '',
-      }))
+    ? raw.map((v, i) => {
+        const slot = Number.parseInt(v?.slot, 10)
+        return {
+          slot: Number.isInteger(slot) && slot > 0 ? slot : i + 1,
+          datapoint_id: v?.datapoint_id || '',
+          datapoint_name: v?.datapoint_name || '',
+        }
+      })
     : []
 }
 
@@ -1673,7 +1677,8 @@ function selectDp(dp) {
 
 function addApiVariable() {
   const variables = normaliseApiVariables(localData.value.variables)
-  variables.push({ datapoint_id: '', datapoint_name: '' })
+  const maxSlot = variables.reduce((max, variable) => Math.max(max, variable.slot || 0), 0)
+  variables.push({ slot: maxSlot + 1, datapoint_id: '', datapoint_name: '' })
   localData.value.variables = variables
   syncApiVariableUiState()
   emitUpdate()
@@ -1719,7 +1724,7 @@ function onApiVariableSearchInput(index, event) {
 
 function selectApiVariableDp(index, dp) {
   const variables = normaliseApiVariables(localData.value.variables)
-  variables[index] = { datapoint_id: dp.id, datapoint_name: dp.name }
+  variables[index] = { slot: variables[index]?.slot || index + 1, datapoint_id: dp.id, datapoint_name: dp.name }
   localData.value.variables = variables
   const searches = apiVariableSearches.value.slice()
   searches[index] = dp.name

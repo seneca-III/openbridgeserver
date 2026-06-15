@@ -22,7 +22,7 @@ afterEach(() => {
   vi.doUnmock('@/api/client')
 })
 
-async function mountApiClientPanel() {
+async function mountApiClientPanel(data = { url: 'internal.example/api/v1/status', auth_type: 'none' }) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const { useAuthStore } = await import('@/stores/auth')
@@ -34,7 +34,7 @@ async function mountApiClientPanel() {
       node: {
         id: 'ac',
         type: 'api_client',
-        data: { url: 'internal.example/api/v1/status', auth_type: 'none' },
+        data,
       },
       nodeTypes: [{ type: 'api_client', label: 'API Client', description: 'HTTP client' }],
       nodeOutputs: {},
@@ -113,7 +113,31 @@ describe('NodeConfigPanel api_client URL target policy', () => {
     expect(wrapper.text()).toContain('###OBS1###')
     expect(wrapper.text()).toContain('Device ID')
     expect(wrapper.emitted('update').at(-1)[0].variables).toEqual([
-      { datapoint_id: 'dp-1', datapoint_name: 'Device ID' },
+      { slot: 1, datapoint_id: 'dp-1', datapoint_name: 'Device ID' },
+    ])
+    wrapper.unmount()
+  })
+
+  it('keeps api_client variable slots stable when deleting an earlier variable', async () => {
+    const wrapper = await mountApiClientPanel({
+      url: 'http://example.com/api/###OBS2###',
+      auth_type: 'none',
+      variables: [
+        { slot: 1, datapoint_id: 'dp-1', datapoint_name: 'First' },
+        { slot: 2, datapoint_id: 'dp-2', datapoint_name: 'Second' },
+      ],
+    })
+
+    expect(wrapper.text()).toContain('###OBS1###')
+    expect(wrapper.text()).toContain('###OBS2###')
+
+    await wrapper.find('[data-testid="api-client-variable-remove-0"]').trigger('click')
+
+    const remainingVariable = wrapper.find('[data-testid="api-client-variable-0"]')
+    expect(remainingVariable.text()).not.toContain('###OBS1###')
+    expect(remainingVariable.text()).toContain('###OBS2###')
+    expect(wrapper.emitted('update').at(-1)[0].variables).toEqual([
+      { slot: 2, datapoint_id: 'dp-2', datapoint_name: 'Second' },
     ])
     wrapper.unmount()
   })
