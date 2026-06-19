@@ -18,7 +18,9 @@ def test_updater_uses_release_bundle_filename_for_download_and_extract():
 def test_updater_verifies_checksum_against_downloaded_filenames():
     workflow = _workflow_text()
 
-    assert 'CHECKSUM_FILENAME=$(basename "$CHECKSUM_URL")' in workflow
-    assert 'curl -fL "$CHECKSUM_URL" -o "$TMP/$CHECKSUM_FILENAME"' in workflow
-    assert 'sha512sum -c "$CHECKSUM_FILENAME"' in workflow
-    assert "sha512sum -c app-bundle.tar.gz.sha512" not in workflow
+    # SHA-256 is parsed from the release notes body — no separate checksum asset needed
+    assert "EXPECTED_SHA256" in workflow
+    assert "sha256sum -c -" in workflow
+    # Old sha512 approach must be gone
+    assert "CHECKSUM_URL" not in workflow
+    assert "sha512sum" not in workflow
