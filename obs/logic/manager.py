@@ -16,6 +16,8 @@ import ipaddress
 import json
 import logging
 import os
+import re
+import socket
 import stat
 import uuid
 from datetime import UTC, datetime
@@ -361,6 +363,18 @@ def _should_send_cookie(
     if bool(cookie_secure) and not req_is_https:
         return False
     return True
+
+
+def _send_wol_packet(mac: str, broadcast: str, port: int) -> None:
+    """Build and send a Wake-on-LAN magic packet via UDP broadcast."""
+    clean = re.sub(r"[:\-\.]", "", mac).upper()
+    if len(clean) != 12 or not re.fullmatch(r"[0-9A-F]{12}", clean):
+        raise ValueError(f"Invalid MAC address: {mac!r}")
+    mac_bytes = bytes.fromhex(clean)
+    magic = b"\xff" * 6 + mac_bytes * 16
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(magic, (broadcast, port))
 
 
 def _build_ical_fetch_targets(url: str) -> tuple[list[str], dict[str, str], dict[str, str]]:
@@ -1317,6 +1331,26 @@ class LogicManager:
                     msg[:40],
                     exc,
                 )
+
+        # ── Handle wake_on_lan ────────────────────────────────────────────
+        for node in flow.nodes:
+            if node.type != "wake_on_lan":
+                continue
+            out = outputs.get(node.id, {})
+            if not GraphExecutor._to_bool(out.get("_trigger")):
+                continue
+            mac = (node.data.get("mac_address") or "").strip()
+            if not mac:
+                logger.warning("wake_on_lan: mac_address missing on node %s", node.id[:8])
+                continue
+            broadcast = (node.data.get("broadcast_ip") or "255.255.255.255").strip()
+            port = int(node.data.get("port") or 9)
+            try:
+                await asyncio.to_thread(_send_wol_packet, mac, broadcast, port)
+                outputs[node.id]["sent"] = True
+                logger.info("Graph %s: WoL sent to %s via %s:%d", graph_id[:8], mac, broadcast, port)
+            except Exception as exc:
+                logger.warning("Graph %s: WoL failed (mac=%r): %s", graph_id[:8], mac, exc)
 
         # ── Process datapoint_write outputs — apply trigger gating + write-side filters,
         # then publish DataValueEvent so registry, ring-buffer, MQTT and WS all get notified.

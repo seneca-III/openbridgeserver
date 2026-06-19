@@ -1,0 +1,277 @@
+"""Unit tests for the wake_on_lan logic node.
+
+Covers:
+  - _send_wol_packet: magic packet construction, MAC normalization, invalid MAC rejection
+  - Executor: trigger pass-through, no-trigger suppression
+  - Manager: packet sent on trigger, skipped without trigger, skipped without MAC
+"""
+
+from __future__ import annotations
+
+import asyncio
+import socket
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from obs.logic.manager import LogicManager, _send_wol_packet
+from obs.logic.models import FlowData
+from tests.unit.conftest import make_executor, node
+
+
+def _flow(nodes: list[dict], edges: list[dict] | None = None) -> FlowData:
+    return FlowData.model_validate({"nodes": nodes, "edges": edges or []})
+
+
+def _make_manager() -> LogicManager:
+    db = AsyncMock()
+    db.fetchall = AsyncMock(return_value=[])
+    db.execute_and_commit = AsyncMock()
+    event_bus = AsyncMock()
+    registry = MagicMock()
+    registry.get_value.return_value = None
+    return LogicManager(db, event_bus, registry)
+
+
+# ===========================================================================
+# _send_wol_packet — magic packet construction
+# ===========================================================================
+
+
+class TestSendWolPacket:
+    def _capture_packet(self, mac: str, broadcast: str = "255.255.255.255", port: int = 9) -> bytes:
+        """Call _send_wol_packet and capture what was sent via a mocked socket."""
+        sent = []
+
+        class FakeSock:
+            def setsockopt(self, *a):
+                pass
+
+            def sendto(self, data, addr):
+                sent.append((data, addr))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        with patch("obs.logic.manager.socket.socket", return_value=FakeSock()):
+            _send_wol_packet(mac, broadcast, port)
+
+        assert len(sent) == 1
+        return sent[0][0]
+
+    def test_magic_packet_starts_with_six_ff_bytes(self):
+        pkt = self._capture_packet("AA:BB:CC:DD:EE:FF")
+        assert pkt[:6] == b"\xff" * 6
+
+    def test_magic_packet_repeats_mac_16_times(self):
+        pkt = self._capture_packet("AA:BB:CC:DD:EE:FF")
+        mac_bytes = bytes.fromhex("AABBCCDDEEFF")
+        assert pkt[6:] == mac_bytes * 16
+
+    def test_total_packet_length(self):
+        pkt = self._capture_packet("AA:BB:CC:DD:EE:FF")
+        assert len(pkt) == 6 + 6 * 16  # 102 bytes
+
+    def test_mac_with_dashes_normalized(self):
+        pkt = self._capture_packet("AA-BB-CC-DD-EE-FF")
+        assert pkt[6:12] == bytes.fromhex("AABBCCDDEEFF")
+
+    def test_mac_with_dots_normalized(self):
+        pkt = self._capture_packet("AABB.CCDD.EEFF")
+        assert pkt[6:12] == bytes.fromhex("AABBCCDDEEFF")
+
+    def test_mac_lowercase_normalized(self):
+        pkt = self._capture_packet("aa:bb:cc:dd:ee:ff")
+        assert pkt[6:12] == bytes.fromhex("AABBCCDDEEFF")
+
+    def test_broadcast_address_used(self):
+        sent = []
+
+        class FakeSock:
+            def setsockopt(self, *a):
+                pass
+
+            def sendto(self, data, addr):
+                sent.append(addr)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        with patch("obs.logic.manager.socket.socket", return_value=FakeSock()):
+            _send_wol_packet("AA:BB:CC:DD:EE:FF", "192.168.1.255", 7)
+
+        assert sent[0] == ("192.168.1.255", 7)
+
+    def test_invalid_mac_too_short_raises(self):
+        with pytest.raises(ValueError, match="Invalid MAC address"):
+            _send_wol_packet("AA:BB:CC:DD:EE", "255.255.255.255", 9)
+
+    def test_invalid_mac_non_hex_raises(self):
+        with pytest.raises(ValueError, match="Invalid MAC address"):
+            _send_wol_packet("ZZ:BB:CC:DD:EE:FF", "255.255.255.255", 9)
+
+    def test_empty_mac_raises(self):
+        with pytest.raises(ValueError, match="Invalid MAC address"):
+            _send_wol_packet("", "255.255.255.255", 9)
+
+    def test_socket_uses_broadcast_sockopt(self):
+        sockopt_calls = []
+
+        class FakeSock:
+            def setsockopt(self, level, optname, value):
+                sockopt_calls.append((level, optname, value))
+
+            def sendto(self, data, addr):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
+        with patch("obs.logic.manager.socket.socket", return_value=FakeSock()):
+            _send_wol_packet("AA:BB:CC:DD:EE:FF", "255.255.255.255", 9)
+
+        assert any(optname == socket.SO_BROADCAST for _, optname, _ in sockopt_calls)
+
+
+# ===========================================================================
+# Executor: wake_on_lan node
+# ===========================================================================
+
+
+class TestWakeOnLanExecutor:
+    def test_trigger_true_passes_through(self):
+        n = node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"})
+        exc = make_executor([n])
+        out = exc.execute({"wol": {"trigger": True}})["wol"]
+        assert out["_trigger"] is True
+        assert out["sent"] is False
+
+    def test_trigger_false_suppresses(self):
+        n = node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"})
+        exc = make_executor([n])
+        out = exc.execute({"wol": {"trigger": False}})["wol"]
+        assert out["_trigger"] is False
+
+    def test_no_trigger_input_defaults_to_false(self):
+        n = node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"})
+        exc = make_executor([n])
+        out = exc.execute({})["wol"]
+        assert out["_trigger"] is False
+
+    def test_truthy_non_bool_trigger(self):
+        n = node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"})
+        exc = make_executor([n])
+        out = exc.execute({"wol": {"trigger": 1}})["wol"]
+        assert out["_trigger"] is True
+
+    def test_sent_is_false_in_executor(self):
+        n = node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"})
+        exc = make_executor([n])
+        out = exc.execute({"wol": {"trigger": True}})["wol"]
+        assert out["sent"] is False
+
+
+# ===========================================================================
+# Manager: wake_on_lan packet dispatch
+# ===========================================================================
+
+
+class TestWakeOnLanManager:
+    def _run_manager(self, mac: str, trigger: bool, broadcast: str = "255.255.255.255", port: int = 9):
+        manager = _make_manager()
+        flow = _flow(
+            [
+                node(
+                    "wol",
+                    "wake_on_lan",
+                    {"mac_address": mac, "broadcast_ip": broadcast, "port": port},
+                ),
+            ],
+        )
+        graph_id = "g"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                outputs = asyncio.run(
+                    manager._execute_graph(
+                        graph_id,
+                        "test",
+                        flow,
+                        {"wol": {"trigger": trigger}},
+                    ),
+                )
+        return outputs, mock_to_thread
+
+    def test_packet_sent_when_triggered(self):
+        outputs, mock_to_thread = self._run_manager("AA:BB:CC:DD:EE:FF", trigger=True)
+        mock_to_thread.assert_awaited_once()
+        assert outputs["wol"]["sent"] is True
+
+    def test_packet_not_sent_when_not_triggered(self):
+        outputs, mock_to_thread = self._run_manager("AA:BB:CC:DD:EE:FF", trigger=False)
+        mock_to_thread.assert_not_awaited()
+        assert outputs["wol"]["sent"] is False
+
+    def test_custom_broadcast_and_port_passed_to_send(self):
+        _, mock_to_thread = self._run_manager(
+            "AA:BB:CC:DD:EE:FF",
+            trigger=True,
+            broadcast="192.168.1.255",
+            port=7,
+        )
+        mock_to_thread.assert_awaited_once()
+        call_args = mock_to_thread.call_args
+        assert call_args.args[1] == "AA:BB:CC:DD:EE:FF"
+        assert call_args.args[2] == "192.168.1.255"
+        assert call_args.args[3] == 7
+
+    def test_missing_mac_skips_send(self):
+        manager = _make_manager()
+        flow = _flow([node("wol", "wake_on_lan", {"mac_address": ""})])
+        graph_id = "g"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                asyncio.run(
+                    manager._execute_graph(
+                        graph_id,
+                        "test",
+                        flow,
+                        {"wol": {"trigger": True}},
+                    ),
+                )
+
+        mock_to_thread.assert_not_awaited()
+
+    def test_send_failure_does_not_raise(self):
+        manager = _make_manager()
+        flow = _flow([node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"})])
+        graph_id = "g"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock, side_effect=OSError("network error")):
+                outputs = asyncio.run(
+                    manager._execute_graph(
+                        graph_id,
+                        "test",
+                        flow,
+                        {"wol": {"trigger": True}},
+                    ),
+                )
+
+        assert outputs["wol"]["sent"] is False

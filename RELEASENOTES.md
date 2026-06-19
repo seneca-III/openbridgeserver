@@ -10,6 +10,7 @@
 * Backend: `.knxproj` imports can now create selected ETS hierarchies in the same backend request, reporting per-hierarchy node/link counts and non-fatal failures for unavailable ETS data. https://github.com/abeggled/openbridgeserver/issues/728
 * Admin GUI: `.knxproj` imports now offer hierarchy creation for topology, buildings/rooms, and trades in the same import flow, including per-hierarchy result feedback and optional auto-linking to created objects. https://github.com/abeggled/openbridgeserver/issues/729
 * Backend/Admin GUI: Repeated `.knxproj` imports now replace automatically generated ETS hierarchies per selected mode by default, while manual hierarchy trees remain untouched; the import dialog also offers an opt-out to keep a separate tree for each import run. https://github.com/abeggled/openbridgeserver/issues/730
+* Logic Engine/Admin GUI: New Wake-on-LAN node sends a UDP broadcast magic packet to wake a device when the trigger input is true; MAC address, broadcast IP, and port are configurable with inline format validation. https://github.com/abeggled/openbridgeserver/issues/825
 
 ### Fixes 🐞
 * Backend: High-volume third-party DEBUG loggers (e.g. `aiosqlite`, which logs two lines per SQL operation) are now floored at INFO, so enabling DEBUG globally no longer floods the logs and saturates a CPU core. https://github.com/abeggled/openbridgeserver/issues/798
