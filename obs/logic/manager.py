@@ -1348,9 +1348,11 @@ class LogicManager:
             try:
                 await asyncio.to_thread(_send_wol_packet, mac, broadcast, port)
                 outputs[node.id]["sent"] = True
-                logger.info("Graph %s: WoL sent to %s via %s:%d", graph_id[:8], mac, broadcast, port)
+                mac_display = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "???"
+                logger.info("Graph %s: WoL sent to %s via %s:%d", graph_id[:8], mac_display, broadcast, port)
             except Exception as exc:
-                logger.warning("Graph %s: WoL failed (mac=%r): %s", graph_id[:8], mac, exc)
+                mac_display = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "???"
+                logger.warning("Graph %s: WoL failed (mac=%s): %s", graph_id[:8], mac_display, exc)
 
         # ── Process datapoint_write outputs — apply trigger gating + write-side filters,
         # then publish DataValueEvent so registry, ring-buffer, MQTT and WS all get notified.
