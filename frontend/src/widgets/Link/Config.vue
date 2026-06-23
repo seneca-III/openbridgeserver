@@ -10,16 +10,18 @@ const emit  = defineEmits<{ (e: 'update:modelValue', val: Record<string, unknown
 
 const store = useVisuStore()
 const cfg = reactive({
-  label:          (props.modelValue.label          as string) ?? '',
-  icon:           (props.modelValue.icon           as string) ?? '🔗',
-  target_node_id: (props.modelValue.target_node_id as string) ?? '',
+  label:          (props.modelValue.label          as string)  ?? '',
+  icon:           (props.modelValue.icon           as string)  ?? '🔗',
+  target_node_id: (props.modelValue.target_node_id as string)  ?? '',
+  show_icon:      (props.modelValue.show_icon      as boolean) ?? true,
 })
 
 // Sync bei Widget-Wechsel
 watch(() => props.modelValue, (v) => {
-  cfg.label          = (v.label          as string) ?? ''
-  cfg.icon           = (v.icon           as string) ?? '🔗'
-  cfg.target_node_id = (v.target_node_id as string) ?? ''
+  cfg.label          = (v.label          as string)  ?? ''
+  cfg.icon           = (v.icon           as string)  ?? '🔗'
+  cfg.target_node_id = (v.target_node_id as string)  ?? ''
+  cfg.show_icon      = (v.show_icon      as boolean) ?? true
 })
 
 watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
@@ -103,6 +105,12 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocClick))
       <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('widgets.stufenschalter.icon') }}</label>
       <IconPicker v-model="cfg.icon" />
     </div>
+
+    <!-- Icon anzeigen -->
+    <label class="flex items-center gap-2 cursor-pointer select-none">
+      <input type="checkbox" v-model="cfg.show_icon" class="rounded" />
+      <span class="text-xs text-gray-500 dark:text-gray-400">Icon anzeigen</span>
+    </label>
 
     <!-- Ziel-Seite (suchbarer Picker) -->
     <div>
