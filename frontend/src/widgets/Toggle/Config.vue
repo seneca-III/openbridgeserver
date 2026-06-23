@@ -68,16 +68,16 @@ watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
 
     <!-- Schriftgrösse -->
     <div>
-      <label class="block text-xs text-gray-400 mb-1">Schriftgrösse Label</label>
+      <label class="block text-xs text-gray-400 mb-1">{{ $t('widgets.common.fontSize') }}</label>
       <select
         v-model="cfg.label_size"
         class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
       >
-        <option value="xs">XS – Standard (text-xs)</option>
-        <option value="sm">S (text-sm)</option>
-        <option value="md">M (text-base)</option>
-        <option value="lg">L (text-lg)</option>
-        <option value="xl">XL (text-xl)</option>
+        <option value="xs">{{ $t('widgets.common.fontSizeXs') }} – Standard (text-xs)</option>
+        <option value="sm">{{ $t('widgets.common.fontSizeSm') }} (text-sm)</option>
+        <option value="md">{{ $t('widgets.common.fontSizeMd') }} (text-base)</option>
+        <option value="lg">{{ $t('widgets.common.fontSizeLg') }} (text-lg)</option>
+        <option value="xl">{{ $t('widgets.common.fontSizeXl') }} (text-xl)</option>
       </select>
     </div>
 
