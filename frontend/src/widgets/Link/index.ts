@@ -18,6 +18,7 @@ WidgetRegistry.register({
     show_icon: true,
     preserve_icon_color: false,
     label_size: 'sm',
+    active_indicator: 'none',
   },
   compatibleTypes: ['*'],
   noDatapoint: true,

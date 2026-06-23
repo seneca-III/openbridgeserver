@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { DataPointValue } from '@/types'
 import VisuIcon from '@/components/VisuIcon.vue'
+import { useVisuStore } from '@/stores/visu'
 
 const props = defineProps<{
   config: Record<string, unknown>
@@ -14,6 +15,8 @@ const props = defineProps<{
 }>()
 
 const router   = useRouter()
+const route    = useRoute()
+const store    = useVisuStore()
 const { t } = useI18n()
 const label    = computed(() => (props.config.label         as string | undefined) ?? t('widgets.link.defaultLabel'))
 const icon     = computed(() => (props.config.icon          as string | undefined) ?? '🔗')
@@ -26,23 +29,64 @@ const labelSize = computed(() => {
   return map[s ?? ''] ?? 'text-sm'
 })
 
+const activeIndicator = computed(() => (props.config.active_indicator as string | undefined) ?? 'none')
+
+// Active if targetId is the current page OR any ancestor of the current page in the visu tree
+const isActive = computed(() => {
+  if (props.editorMode || !targetId.value) return false
+  const currentId = route.params.id as string
+  if (!currentId) return false
+  let id: string | undefined = currentId
+  while (id) {
+    if (id === targetId.value) return true
+    id = store.getNode(id)?.parent_id ?? undefined
+  }
+  return false
+})
+
 function navigate() {
   if (props.editorMode || !targetId.value) return
-  router.push({ name: 'viewer', params: { id: targetId.value } })
+  const target = store.getNode(targetId.value)
+  if (target?.type === 'LOCATION') {
+    // Navigate to first child page of the location
+    const firstPage = store.nodes.find(n => n.parent_id === targetId.value && n.type === 'PAGE')
+    if (firstPage) router.push({ name: 'viewer', params: { id: firstPage.id } })
+  } else {
+    router.push({ name: 'viewer', params: { id: targetId.value } })
+  }
 }
 </script>
 
 <template>
   <div
-    class="flex flex-col items-center justify-center h-full p-3 gap-2 select-none rounded-xl transition-colors"
-    :class="editorMode
-      ? 'cursor-default opacity-70'
-      : 'cursor-pointer hover:bg-gray-200/60 dark:hover:bg-white/5 active:bg-gray-300/60 dark:active:bg-white/10'"
+    class="relative flex flex-col items-center justify-center h-full p-3 gap-2 select-none rounded-xl transition-colors"
+    :class="[
+      editorMode
+        ? 'cursor-default opacity-70'
+        : 'cursor-pointer hover:bg-gray-200/60 dark:hover:bg-white/5 active:bg-gray-300/60 dark:active:bg-white/10',
+      isActive && activeIndicator === 'border' ? 'ring-2 ring-inset ring-[#D6A800]' : '',
+    ]"
     @click="navigate"
   >
     <span v-if="showIcon" class="text-4xl leading-none" data-testid="link-icon"><VisuIcon :icon="icon" :preserve-color="preserveIconColor" /></span>
     <span class="font-medium text-gray-800 dark:text-gray-200 text-center leading-tight" :class="labelSize">{{ label }}</span>
     <span v-if="!editorMode && targetId" class="text-xs text-gray-400 dark:text-gray-500">→</span>
     <span v-else-if="!targetId" class="text-xs text-gray-400 dark:text-gray-600">{{ $t('widgets.link.noTarget') }}</span>
+
+    <!-- active_indicator: dot -->
+    <span
+      v-if="isActive && activeIndicator === 'dot'"
+      class="text-lg leading-none"
+      style="color: #D6A800"
+      data-testid="link-active-dot"
+    >●</span>
+
+    <!-- active_indicator: bar (bottom line) -->
+    <div
+      v-if="isActive && activeIndicator === 'bar'"
+      class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full"
+      style="background-color: #D6A800"
+      data-testid="link-active-bar"
+    />
   </div>
 </template>

@@ -10,22 +10,24 @@ const emit  = defineEmits<{ (e: 'update:modelValue', val: Record<string, unknown
 
 const store = useVisuStore()
 const cfg = reactive({
-  label:          (props.modelValue.label          as string)  ?? '',
-  icon:           (props.modelValue.icon           as string)  ?? '🔗',
-  target_node_id: (props.modelValue.target_node_id as string)  ?? '',
+  label:               (props.modelValue.label               as string)  ?? '',
+  icon:                (props.modelValue.icon                as string)  ?? '🔗',
+  target_node_id:      (props.modelValue.target_node_id      as string)  ?? '',
   show_icon:           (props.modelValue.show_icon           as boolean) ?? true,
   preserve_icon_color: (props.modelValue.preserve_icon_color as boolean) ?? false,
-  label_size:     (props.modelValue.label_size     as string)  ?? 'sm',
+  label_size:          (props.modelValue.label_size          as string)  ?? 'sm',
+  active_indicator:    (props.modelValue.active_indicator    as string)  ?? 'none',
 })
 
 // Sync bei Widget-Wechsel
 watch(() => props.modelValue, (v) => {
-  cfg.label          = (v.label          as string)  ?? ''
-  cfg.icon           = (v.icon           as string)  ?? '🔗'
-  cfg.target_node_id = (v.target_node_id as string)  ?? ''
+  cfg.label               = (v.label               as string)  ?? ''
+  cfg.icon                = (v.icon                as string)  ?? '🔗'
+  cfg.target_node_id      = (v.target_node_id      as string)  ?? ''
   cfg.show_icon           = (v.show_icon           as boolean) ?? true
   cfg.preserve_icon_color = (v.preserve_icon_color as boolean) ?? false
-  cfg.label_size     = (v.label_size     as string)  ?? 'sm'
+  cfg.label_size          = (v.label_size          as string)  ?? 'sm'
+  cfg.active_indicator    = (v.active_indicator    as string)  ?? 'none'
 })
 
 watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
@@ -138,6 +140,20 @@ onUnmounted(() => document.removeEventListener('mousedown', onDocClick))
         <option value="md">{{ $t('widgets.common.fontSizeMd') }}</option>
         <option value="lg">{{ $t('widgets.common.fontSizeLg') }}</option>
         <option value="xl">{{ $t('widgets.common.fontSizeXl') }}</option>
+      </select>
+    </div>
+
+    <!-- Aktive Seite markieren -->
+    <div>
+      <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Aktive Seite markieren</label>
+      <select
+        v-model="cfg.active_indicator"
+        class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
+      >
+        <option value="none">Keine</option>
+        <option value="dot">Punkt (●)</option>
+        <option value="bar">Linie (unten)</option>
+        <option value="border">Rahmen</option>
       </select>
     </div>
 
