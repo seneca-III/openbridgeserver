@@ -43,7 +43,7 @@ watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
       <input
         v-model="cfg.label"
         type="text"
-        placeholder="z.B. Schlafzimmer Süd"
+        :placeholder="$t('widgets.rolladen.labelPlaceholder')"
         class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
@@ -159,7 +159,7 @@ watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
       <input
         v-model="cfg.label_status_1"
         type="text"
-        placeholder="Manuelle Sperre"
+        :placeholder="$t('widgets.rolladen.indicatorPlaceholder1')"
         class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
@@ -175,7 +175,7 @@ watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
       <input
         v-model="cfg.label_status_2"
         type="text"
-        placeholder="z.B. Windalarm"
+        :placeholder="$t('widgets.rolladen.indicatorPlaceholder2')"
         class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
@@ -191,7 +191,7 @@ watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
       <input
         v-model="cfg.label_status_3"
         type="text"
-        placeholder="z.B. Regenalarm"
+        :placeholder="$t('widgets.rolladen.indicatorPlaceholder3')"
         class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
@@ -207,7 +207,7 @@ watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
       <input
         v-model="cfg.label_status_4"
         type="text"
-        placeholder="z.B. Automatik aktiv"
+        :placeholder="$t('widgets.rolladen.indicatorPlaceholder4')"
         class="w-full bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
