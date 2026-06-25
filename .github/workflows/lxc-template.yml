@@ -51,9 +51,11 @@ jobs:
           fi
           TEMPLATE_FILE="${{ env.TEMPLATE_NAME }}-lxc_${VERSION}_${{ matrix.arch }}.tar.zst"
           APP_BUNDLE_FILE="${{ env.TEMPLATE_NAME }}-app-bundle_${VERSION}.tar.gz"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "template_file=$TEMPLATE_FILE" >> "$GITHUB_OUTPUT"
-          echo "app_bundle_file=$APP_BUNDLE_FILE" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$VERSION"
+            echo "template_file=$TEMPLATE_FILE"
+            echo "app_bundle_file=$APP_BUNDLE_FILE"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install debootstrap and tools
         run: |
@@ -366,7 +368,7 @@ jobs:
           if ! mountpoint -q "$ROOTFS/proc"; then
             sudo mount -t proc proc "$ROOTFS/proc"
           fi
-          cleanup() { mountpoint -q "$ROOTFS/proc" && sudo umount "$ROOTFS/proc" || true; }
+          cleanup() { if mountpoint -q "$ROOTFS/proc"; then sudo umount "$ROOTFS/proc" || true; fi; }
           trap cleanup EXIT
 
           # Copy application source and built assets into rootfs
@@ -573,8 +575,8 @@ jobs:
             echo "Invalid tag format: $RELEASE_TAG" >&2
             exit 1
           fi
-          find artifacts/ -type f \( -name "*.tar.zst" -o -name "*.tar.gz" \) \
-            | xargs gh release upload "$RELEASE_TAG" \
+          find artifacts/ -type f \( -name "*.tar.zst" -o -name "*.tar.gz" \) -print0 \
+            | xargs -0 gh release upload "$RELEASE_TAG" \
               --repo "$RELEASE_REPO" \
               --clobber
 
