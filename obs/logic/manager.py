@@ -1013,6 +1013,71 @@ class LogicManager:
                 ns["accumulated_hours"] += (execute_now - ns["last_start"]).total_seconds() / 3600
                 ns["last_start"] = None
 
+        # ── Handle wake_on_lan ────────────────────────────────────────────
+        # Runs BEFORE api_client/notify so that graphs with wol.sent →
+        # api_client or wol.sent → notify fire correctly in the same execution.
+        # Rising-edge: packet is sent only on the False→True transition of
+        # _trigger, preventing repeated broadcasts on sustained truthy inputs.
+        triggered_wol_nodes: set[str] = set()
+        for node in flow.nodes:
+            if node.type != "wake_on_lan":
+                continue
+            out = outputs.get(node.id, {})
+            hyst_wol = hyst.setdefault(node.id, {})
+            is_triggered = GraphExecutor._to_bool(out.get("_trigger"))
+            was_triggered = hyst_wol.get("wol_prev_trigger", False)
+            hyst_wol["wol_prev_trigger"] = is_triggered
+            if not is_triggered or was_triggered:
+                continue
+            mac = (node.data.get("mac_address") or "").strip()
+            if not mac:
+                logger.warning("wake_on_lan: mac_address missing on node %s", node.id[:8])
+                continue
+            broadcast = (node.data.get("broadcast_ip") or "").strip() or "255.255.255.255"
+            _port_raw = node.data.get("port")
+            try:
+                if isinstance(_port_raw, float) and not _port_raw.is_integer():
+                    raise ValueError(f"fractional port {_port_raw!r} — must be a whole number")
+                port = int(_port_raw) if _port_raw not in (None, "") else 9
+                if not (1 <= port <= 65535):
+                    raise ValueError(f"port {port!r} out of range 1–65535")
+                try:
+                    ipaddress.IPv4Address(broadcast)
+                except ValueError:
+                    raise ValueError(f"invalid broadcast IP {broadcast!r}") from None
+                await asyncio.to_thread(_send_wol_packet, mac, broadcast, port)
+                outputs[node.id]["sent"] = True
+                triggered_wol_nodes.add(node.id)
+                mac_oui = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "??:??:??:??:??:??"
+                logger.info("Graph %s: WoL sent to %s via %s:%d", graph_id[:8], mac_oui, broadcast, port)
+            except Exception as exc:
+                mac_oui = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "??:??:??:??:??:??"
+                logger.warning("Graph %s: WoL failed (mac=%s): %s", graph_id[:8], mac_oui, exc)
+
+        # ── Re-propagate wake_on_lan sent=True to downstream nodes ───────────
+        # The first executor pass computed downstream nodes with sent=False.
+        # Re-run only the downstream subgraph with the real sent value as input.
+        # Datapoint-read seeds from aug_overrides are carried into the second
+        # pass so value-wired downstream datapoint_write nodes resolve correctly.
+        if triggered_wol_nodes:
+            wol_downstream_overrides: dict[str, dict[str, Any]] = {}
+            for e in flow.edges:
+                if e.source in triggered_wol_nodes:
+                    src_handle = e.sourceHandle or "out"
+                    tgt_handle = e.targetHandle or "in"
+                    wol_downstream_overrides.setdefault(e.target, {})[tgt_handle] = GraphExecutor._get_output_value(outputs[e.source], src_handle)
+            if wol_downstream_overrides:
+                dp_read_ids = {n.id for n in flow.nodes if n.type == "datapoint_read"}
+                wol_merged: dict[str, dict[str, Any]] = {nid: dict(vals) for nid, vals in aug_overrides.items() if nid in dp_read_ids}
+                for nid, vals in wol_downstream_overrides.items():
+                    wol_merged.setdefault(nid, {}).update(vals)
+                wol_second_executor = GraphExecutor(flow, hyst, self._app_config)
+                wol_second_outputs = wol_second_executor.execute(wol_merged)
+                wol_node_ids = {n.id for n in flow.nodes if n.type == "wake_on_lan"}
+                for nid, vals in wol_second_outputs.items():
+                    if nid not in wol_node_ids:
+                        outputs[nid] = vals
+
         # ── Handle api_client ─────────────────────────────────────────────
         # Track which api_client nodes completed an HTTP call so we can
         # re-propagate their real outputs to downstream nodes afterwards.
@@ -1331,51 +1396,6 @@ class LogicManager:
                     msg[:40],
                     exc,
                 )
-
-        # ── Handle wake_on_lan ────────────────────────────────────────────
-        triggered_wol_nodes: set[str] = set()
-        for node in flow.nodes:
-            if node.type != "wake_on_lan":
-                continue
-            out = outputs.get(node.id, {})
-            if not GraphExecutor._to_bool(out.get("_trigger")):
-                continue
-            mac = (node.data.get("mac_address") or "").strip()
-            if not mac:
-                logger.warning("wake_on_lan: mac_address missing on node %s", node.id[:8])
-                continue
-            broadcast = (node.data.get("broadcast_ip") or "").strip() or "255.255.255.255"
-            _port_raw = node.data.get("port")
-            try:
-                port = int(_port_raw) if _port_raw not in (None, "") else 9
-                if not (1 <= port <= 65535):
-                    raise ValueError(f"port {port!r} out of range 1–65535")
-                await asyncio.to_thread(_send_wol_packet, mac, broadcast, port)
-                outputs[node.id]["sent"] = True
-                triggered_wol_nodes.add(node.id)
-                mac_display = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "???"
-                logger.info("Graph %s: WoL sent to %s via %s:%d", graph_id[:8], mac_display, broadcast, port)
-            except Exception as exc:
-                mac_display = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "???"
-                logger.warning("Graph %s: WoL failed (mac=%s): %s", graph_id[:8], mac_display, exc)
-
-        # ── Re-propagate wake_on_lan sent=True to downstream nodes ───────────
-        # The first executor pass computed downstream nodes with sent=False.
-        # Re-run the executor for those nodes using the real sent value as input.
-        if triggered_wol_nodes:
-            wol_downstream_overrides: dict[str, dict[str, Any]] = {}
-            for e in flow.edges:
-                if e.source in triggered_wol_nodes:
-                    src_handle = e.sourceHandle or "out"
-                    tgt_handle = e.targetHandle or "in"
-                    wol_downstream_overrides.setdefault(e.target, {})[tgt_handle] = GraphExecutor._get_output_value(outputs[e.source], src_handle)
-            if wol_downstream_overrides:
-                wol_second_executor = GraphExecutor(flow, hyst, self._app_config)
-                wol_second_outputs = wol_second_executor.execute(wol_downstream_overrides)
-                wol_node_ids = {n.id for n in flow.nodes if n.type == "wake_on_lan"}
-                for nid, vals in wol_second_outputs.items():
-                    if nid not in wol_node_ids:
-                        outputs[nid] = vals
 
         # ── Process datapoint_write outputs — apply trigger gating + write-side filters,
         # then publish DataValueEvent so registry, ring-buffer, MQTT and WS all get notified.
