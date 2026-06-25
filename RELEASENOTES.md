@@ -13,6 +13,7 @@
 * Visu: Licht widget: the EIN/AUS state label can now be hidden via "show_state_text". https://github.com/abeggled/openbridgeserver/issues/840
 * Visu: Link widget now supports hiding the icon via the "show_icon" option. https://github.com/abeggled/openbridgeserver/issues/839
 * Visu: Editor grid limits extended — columns up to 120, cell size down to 10 px, enabling fullscreen/dense layouts. https://github.com/abeggled/openbridgeserver/issues/842
+* Visu: Link and ButtonGroup widgets now support "preserve_icon_color" per widget/button — when enabled, SVG icons retain their original colors instead of being forced to black/white. https://github.com/abeggled/openbridgeserver/issues/845
 
 ### Fixes 🐞
 * Visu: Rolladen-Widget — Beschriftungen der Statusindikatoren 1–4 wurden als roher i18n-Key angezeigt statt als übersetzter Text (fehlende doppelte geschweifte Klammern in der Config-Komponente).
