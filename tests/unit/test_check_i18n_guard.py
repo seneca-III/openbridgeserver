@@ -42,9 +42,50 @@ def test_raw_translation_call_in_template_text_is_flagged():
     assert "$t('widgets.info.additionalValues'" in violations[0].snippet
 
 
+def test_raw_composition_translation_call_in_template_text_is_flagged():
+    src = """<template>
+  <p>
+    t('widgets.info.additionalValues')
+  </p>
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-text"
+    assert "t('widgets.info.additionalValues'" in violations[0].snippet
+
+
+def test_raw_translation_call_before_inline_tag_is_flagged():
+    src = """<template>
+  <p>
+    $t('widgets.info.additionalValues')<br>
+  </p>
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-text"
+    assert "$t('widgets.info.additionalValues')" in violations[0].snippet
+
+
 def test_interpolated_translation_call_is_allowed():
     src = """<template>
   <p>{{ $t('widgets.info.additionalValues', { max: MAX_EXTRA }) }}</p>
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert violations == []
+
+
+def test_interpolated_composition_translation_call_is_allowed():
+    src = """<template>
+  <p>{{ t('widgets.info.additionalValues', { max: MAX_EXTRA }) }}</p>
 </template>
 """
 
@@ -116,6 +157,45 @@ def test_bound_template_literal_attribute_is_flagged():
     assert len(violations) == 1
     assert violations[0].kind == "template-bound-attr"
     assert violations[0].snippet == "Farbe ${i + 1}"
+
+
+def test_bound_expression_literal_piece_is_flagged():
+    src = """<template>
+  <input :placeholder="'Room ' + index" />
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-bound-attr"
+    assert violations[0].snippet == "Room"
+
+
+def test_bound_object_expression_literal_piece_is_flagged():
+    src = """<template>
+  <input :label="{ text: 'Room' }" />
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-bound-attr"
+    assert violations[0].snippet == "Room"
+
+
+def test_bound_mixed_translation_attribute_flags_literal_piece_only():
+    src = """<template>
+  <input :placeholder="'Room ' + $t('widgets.room')" />
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-bound-attr"
+    assert violations[0].snippet == "Room"
 
 
 def test_bound_variable_attribute_is_allowed():

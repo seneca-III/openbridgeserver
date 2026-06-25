@@ -26,9 +26,10 @@ ATTR_RE = re.compile(
 BOUND_ATTR_RE = re.compile(
     r"(?:^|\s)(?::|v-bind:)(label|title|placeholder|alt|aria-label|helper-text|tooltip|caption|headline|confirm-text|cancel-text|no-data-text|loading-text)\s*=\s*(['\"])(.*?)\2"
 )
-STRING_LITERAL_RE = re.compile(r"^(['\"`])(.*)\1$")
+STRING_TOKEN_RE = re.compile(r"(['\"`])((?:\\.|(?!\1).)*?)\1")
+HTML_TAG_RE = re.compile(r"</?[\w:-]+(?:\s+[^<>]*)?/?>")
 TEXT_NODE_RE = re.compile(r">([^<{][^<]*)<")
-RAW_TRANSLATION_TEXT_RE = re.compile(r"\$t\s*\(")
+RAW_TRANSLATION_TEXT_RE = re.compile(r"(?:\$t|(?<![\w$])t)\s*\(")
 UI_CALL_RE = re.compile(r"\b(?:alert|confirm|prompt|toast(?:\.[A-Za-z_][A-Za-z0-9_]*)?|notify(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*\(\s*(['\"`])(.+?)\1")
 ERROR_RE = re.compile(r"\b(?:throw\s+new\s+Error|new\s+Error)\s*\(\s*(['\"`])(.+?)\1")
 ASSIGN_RE = re.compile(r"\b(?:errorMessage|warningMessage|successMessage|message|label|title|placeholder|tooltip|caption)\s*[:=]\s*(['\"`])(.*?)\1")
@@ -122,7 +123,7 @@ def is_technical_token(text: str) -> bool:
     return False
 
 
-def should_flag(candidate: str, allowlist: Allowlist) -> bool:
+def should_flag(candidate: str, allowlist: Allowlist, *, allow_technical_tokens: bool = True) -> bool:
     text = normalize_text(candidate)
     if len(text) < 2:
         return False
@@ -134,7 +135,7 @@ def should_flag(candidate: str, allowlist: Allowlist) -> bool:
         return True
     if text.startswith(("$t(", "t(")):
         return False
-    if is_technical_token(text):
+    if allow_technical_tokens and is_technical_token(text):
         return False
     if allowlist.contains(text):
         return False
@@ -157,6 +158,11 @@ def add_violations_from_matches(
             sink.append(Violation(path=path, line=line, kind=kind, snippet=normalize_text(candidate)))
 
 
+def is_translation_key_argument(expression: str, start: int) -> bool:
+    prefix = expression[:start].rstrip()
+    return re.search(r"(?:\$t|(?<![\w$])t)\s*\($", prefix) is not None
+
+
 def add_violations_from_bound_attrs(
     *,
     path: str,
@@ -167,15 +173,15 @@ def add_violations_from_bound_attrs(
 ) -> None:
     for match in matches:
         expression = match.group(3).strip()
-        if RAW_TRANSLATION_TEXT_RE.search(expression):
-            continue
-        literal = STRING_LITERAL_RE.match(expression)
-        if literal and should_flag(literal.group(2), allowlist):
-            sink.append(Violation(path=path, line=line, kind="template-bound-attr", snippet=normalize_text(literal.group(2))))
+        for literal in STRING_TOKEN_RE.finditer(expression):
+            if is_translation_key_argument(expression, literal.start()):
+                continue
+            if should_flag(literal.group(2), allowlist, allow_technical_tokens=False):
+                sink.append(Violation(path=path, line=line, kind="template-bound-attr", snippet=normalize_text(literal.group(2))))
 
 
 def raw_translation_text_violation(path: str, line_no: int, line: str, in_interpolation: bool) -> Violation | None:
-    text = normalize_text(line)
+    text = normalize_text(HTML_TAG_RE.sub(" ", line))
     if RAW_TRANSLATION_TEXT_RE.search(text) and not in_interpolation and "{{" not in text and "<" not in text and ">" not in text and "=" not in text:
         return Violation(path=path, line=line_no, kind="template-text", snippet=text)
     return None
