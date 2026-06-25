@@ -9,15 +9,20 @@ import pytest
 
 from obs.admin_cli import (
     AdminCliError,
+    main as admin_main,
     build_parser,
     create_backup,
     create_support_package,
     database_info,
+    get_loglevel,
+    list_adapters,
     list_bindings,
     resolve_database_path,
     set_adapter_enabled,
     set_binding_enabled,
     set_loglevel,
+    show_adapter,
+    status,
     validate_config,
 )
 from obs.admin_cli import _normalize_global_options
@@ -170,6 +175,20 @@ def test_database_info_handles_suffixless_db_paths(tmp_path: Path):
     assert info["shm_exists"] is True
 
 
+def test_status_includes_database_details_for_existing_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path = tmp_path / "obs.db"
+    _make_db(db_path)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(f"database:\n  path: {db_path}\n", encoding="utf-8")
+    monkeypatch.setenv("OBS_CONFIG", str(config_path))
+
+    result = status()
+
+    assert result["config"]["exists"] is True
+    assert result["database"]["path"] == str(db_path)
+    assert result["database"]["schema_version"] == 37
+
+
 def test_automatic_backup_names_are_unique_within_same_second(tmp_path: Path):
     db_path = tmp_path / "obs.db"
     _make_db(db_path)
@@ -180,6 +199,63 @@ def test_automatic_backup_names_are_unique_within_same_second(tmp_path: Path):
     assert first != second
     assert first.exists()
     assert second.exists()
+
+
+def test_create_backup_accepts_output_directory(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    _make_db(db_path)
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+
+    backup = create_backup(db_path, str(backup_dir))
+
+    assert backup.parent == backup_dir
+    assert backup.exists()
+
+
+def test_list_and_show_adapters_include_binding_counts(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    ids = _make_db(db_path)
+
+    adapters = list_adapters(db_path)
+    shown = show_adapter(db_path, ids["instance_id"])
+
+    assert adapters == [
+        {
+            "id": ids["instance_id"],
+            "adapter_type": "MQTT",
+            "name": "mqtt.internal.local",
+            "enabled": True,
+            "bindings": 1,
+            "created_at": "2026-06-25T12:00:00+00:00",
+            "updated_at": "2026-06-25T12:00:00+00:00",
+        }
+    ]
+    assert shown["config"]["password"] == "secret"
+    assert shown["bindings"] == 1
+
+
+def test_show_adapter_rejects_ambiguous_names(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    _make_db(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO adapter_instances VALUES (?,?,?,?,?,?,?)",
+        (
+            str(uuid.uuid4()),
+            "MQTT",
+            "mqtt.internal.local",
+            "{}",
+            1,
+            "2026-06-25T12:00:00+00:00",
+            "2026-06-25T12:00:00+00:00",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(AdminCliError, match="nicht eindeutig"):
+        show_adapter(db_path, "mqtt.internal.local")
 
 
 def test_adapter_enable_disable_offline_updates_timestamp_and_backup(tmp_path: Path):
@@ -211,6 +287,14 @@ def test_binding_enable_disable_offline_updates_timestamp_and_backup(tmp_path: P
     assert list_bindings(db_path, ids["instance_id"])[0]["enabled"] is False
 
 
+def test_missing_binding_raises_user_facing_error(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    _make_db(db_path)
+
+    with pytest.raises(AdminCliError, match="Binding nicht gefunden"):
+        set_binding_enabled(db_path, str(uuid.uuid4()), False, backup=False)
+
+
 def test_loglevel_set_persists_in_app_settings(tmp_path: Path):
     db_path = tmp_path / "obs.db"
     _make_db(db_path)
@@ -222,6 +306,22 @@ def test_loglevel_set_persists_in_app_settings(tmp_path: Path):
     value = conn.execute("SELECT value FROM app_settings WHERE key='server.log_level'").fetchone()[0]
     conn.close()
     assert value == "DEBUG"
+
+
+def test_get_loglevel_returns_persisted_value(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    _make_db(db_path)
+    set_loglevel(db_path, "ERROR", backup=False)
+
+    assert get_loglevel(db_path) == {"key": "server.log_level", "value": "ERROR"}
+
+
+def test_loglevel_set_rejects_unknown_level(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    _make_db(db_path)
+
+    with pytest.raises(AdminCliError, match="Ungueltiges Loglevel"):
+        set_loglevel(db_path, "TRACE", backup=False)
 
 
 def test_support_package_sanitizes_adapter_secret_fields(tmp_path: Path):
@@ -238,6 +338,19 @@ def test_support_package_sanitizes_adapter_secret_fields(tmp_path: Path):
     assert "/" not in package["installation"]["database"]["path"]
 
 
+def test_support_package_marks_invalid_adapter_json(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    ids = _make_db(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE adapter_instances SET config=? WHERE id=?", ("{broken", ids["instance_id"]))
+    conn.commit()
+    conn.close()
+
+    package = create_support_package(db_path)
+
+    assert package["adapters"][0]["config"] == {"available": False, "reason": "invalid_json"}
+
+
 def test_config_validate_reports_invalid_json(tmp_path: Path):
     db_path = tmp_path / "obs.db"
     ids = _make_db(db_path)
@@ -250,6 +363,20 @@ def test_config_validate_reports_invalid_json(tmp_path: Path):
 
     assert result["ok"] is False
     assert result["errors"][0]["table"] == "adapter_instances"
+
+
+def test_config_validate_reports_invalid_value_map_json(tmp_path: Path):
+    db_path = tmp_path / "obs.db"
+    ids = _make_db(db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE adapter_bindings SET value_map=? WHERE id=?", ("{broken", ids["binding_id"]))
+    conn.commit()
+    conn.close()
+
+    result = validate_config(db_path)
+
+    assert result["ok"] is False
+    assert result["errors"][0]["field"] == "value_map"
 
 
 def test_write_fails_clearly_when_database_locked(tmp_path: Path):
@@ -271,3 +398,36 @@ def test_resolve_database_path_missing_raises(tmp_path: Path, monkeypatch: pytes
 
     with pytest.raises(AdminCliError, match="Keine OBS-Konfigurationsdatenbank"):
         resolve_database_path()
+
+
+def test_main_dispatches_json_list_command(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    db_path = tmp_path / "obs.db"
+    ids = _make_db(db_path)
+
+    code = admin_main(["adapters", "list", "--db", str(db_path), "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload[0]["id"] == ids["instance_id"]
+
+
+def test_main_dispatches_support_package_create(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    db_path = tmp_path / "obs.db"
+    _make_db(db_path)
+    output = tmp_path / "support.json"
+
+    code = admin_main(["--db", str(db_path), "support-package", "create", "--output", str(output)])
+
+    assert code == 0
+    assert output.exists()
+    assert "output:" in capsys.readouterr().out
+
+
+def test_main_returns_error_code_for_user_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    missing = tmp_path / "missing.db"
+
+    code = admin_main(["--db", str(missing), "db", "info"])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "Keine OBS-Konfigurationsdatenbank" in captured.err
