@@ -1272,6 +1272,7 @@
       "astro_sun": "Astro Sonne",
       "notify_pushover": "Pushover",
       "notify_sms": "SMS (seven.io)",
+      "wake_on_lan": "Wake on LAN",
       "json_extractor": "JSON Extraktor",
       "xml_extractor": "XML Extraktor",
       "substring_extractor": "Substring / RegEx",
@@ -1321,6 +1322,8 @@
     "negatePort": "{id} negieren",
     "palette": {
       "title": "Blöcke",
+      "collapse": "Blockpalette einklappen",
+      "expand": "Blockpalette ausklappen",
       "categories": {
         "logic": "Logik",
         "datapoint": "Objekte",
@@ -1731,6 +1734,14 @@
         "sender": "Absender (max 11 Zeichen)",
         "message": "Nachricht (Fallback)"
       },
+      "wake_on_lan": {
+        "mac_address": "MAC-Adresse (z.B. AA:BB:CC:DD:EE:FF)",
+        "broadcast_ip": "Broadcast-IP",
+        "port": "UDP-Port",
+        "invalidMac": "Ungültige MAC-Adresse – bitte im Format AA:BB:CC:DD:EE:FF eingeben",
+        "invalidBroadcastIp": "Ungültige IP-Adresse – bitte eine gültige IPv4-Adresse eingeben",
+        "invalidPort": "Ungültiger Port – bitte eine Zahl zwischen 1 und 65535 eingeben"
+      },
       "json_extractor": {
         "json_path": "Schlüsselpfad (Legacy)",
         "json_paths": "Ausgänge (JSON-Array)"
@@ -1851,6 +1862,7 @@
       "astro_sun": "Berechnet Sonnenauf- und -untergang basierend auf Breitengrad/Längengrad. Benötigt: pip install astral",
       "notify_pushover": "Sendet eine Push-Benachrichtigung via Pushover API (api.pushover.net). Wird automatisch ausgelöst wenn eine Nachricht am Eingang ankommt.",
       "notify_sms": "Sendet eine SMS via seven.io Gateway (gateway.seven.io). Wird automatisch ausgelöst wenn eine Nachricht am Eingang ankommt.",
+      "wake_on_lan": "Sendet ein Wake-on-LAN Magic-Paket an ein Gerät per UDP-Broadcast. Wird ausgelöst wenn der Trigger-Eingang true ist.",
       "json_extractor": "Parst einen JSON-String und extrahiert einen oder mehrere Werte anhand von Schlüsselpfaden (Punkt-Notation, z.B. sensors.temperature). Mehrere Ausgänge konfigurierbar über + im Konfigurations-Panel.",
       "xml_extractor": "Parst einen XML-String und extrahiert einen oder mehrere Werte anhand von XPath-Ausdrücken (ElementTree-Syntax, z.B. .//temperature). Mehrere Ausgänge konfigurierbar über + im Konfigurations-Panel.",
       "substring_extractor": "Extrahiert Text aus einem String per Substring-Operation oder regulärem Ausdruck. Modi: links_von / rechts_von (erstes oder letztes Vorkommen), zwischen (zwei Markierungen), ausschneiden (Position + Länge), regex (Python re-Syntax, Gruppen wählbar).",

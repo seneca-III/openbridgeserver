@@ -812,6 +812,53 @@
       </div>
     </template>
 
+    <!-- ── wake_on_lan: MAC validation ─────────────────────────────────── -->
+    <template v-else-if="isWakeOnLanNode">
+      <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        <p class="text-xs text-slate-500">{{ nodeDescription(nodeDef) }}</p>
+
+        <div class="form-group">
+          <label class="label">{{ $t('logic.nodeConfig.wake_on_lan.mac_address') }}</label>
+          <input
+            v-model="localData.mac_address"
+            type="text"
+            :class="['input text-sm font-mono', macAddressError ? 'border-red-500 focus:ring-red-500' : '']"
+            placeholder="AA:BB:CC:DD:EE:FF"
+            @change="emitUpdate"
+            data-testid="wol-mac-address"
+          />
+          <p v-if="macAddressError" class="text-xs text-red-400 mt-1">{{ macAddressError }}</p>
+        </div>
+
+        <div class="form-group">
+          <label class="label">{{ $t('logic.nodeConfig.wake_on_lan.broadcast_ip') }}</label>
+          <input
+            v-model="localData.broadcast_ip"
+            type="text"
+            :class="['input text-sm font-mono', broadcastIpError ? 'border-red-500 focus:ring-red-500' : '']"
+            placeholder="255.255.255.255"
+            @change="emitUpdate"
+            data-testid="wol-broadcast-ip"
+          />
+          <p v-if="broadcastIpError" class="text-xs text-red-400 mt-1">{{ broadcastIpError }}</p>
+        </div>
+
+        <div class="form-group">
+          <label class="label">{{ $t('logic.nodeConfig.wake_on_lan.port') }}</label>
+          <input
+            v-model.number="localData.port"
+            type="number"
+            min="1"
+            max="65535"
+            :class="['input text-sm', portError ? 'border-red-500 focus:ring-red-500' : '']"
+            @change="emitUpdate"
+            data-testid="wol-port"
+          />
+          <p v-if="portError" class="text-xs text-red-400 mt-1">{{ portError }}</p>
+        </div>
+      </div>
+    </template>
+
     <!-- ── All other node types: generic rendering ─────────────────────── -->
     <template v-else>
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
@@ -1037,6 +1084,29 @@ const isExtractorNode  = computed(() =>
 const isSubstringExtractorNode = computed(() => props.node?.type === 'substring_extractor')
 const isStringConcatNode = computed(() => props.node?.type === 'string_concat')
 const isICalNode          = computed(() => props.node?.type === 'ical')
+const isWakeOnLanNode     = computed(() => props.node?.type === 'wake_on_lan')
+
+const MAC_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/
+const macAddressError = computed(() => {
+  const mac = (localData.value.mac_address || '').trim()
+  if (!mac) return ''
+  return MAC_RE.test(mac) ? '' : t('logic.nodeConfig.wake_on_lan.invalidMac')
+})
+
+const IPV4_RE = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/
+const broadcastIpError = computed(() => {
+  const ip = (localData.value.broadcast_ip || '').trim()
+  if (!ip) return ''
+  return IPV4_RE.test(ip) ? '' : t('logic.nodeConfig.wake_on_lan.invalidBroadcastIp')
+})
+
+const portError = computed(() => {
+  const p = localData.value.port
+  if (p === '' || p === null || p === undefined) return ''
+  const n = Number(p)
+  if (!Number.isInteger(n) || n < 1 || n > 65535) return t('logic.nodeConfig.wake_on_lan.invalidPort')
+  return ''
+})
 
 // ── iCal: filter management ───────────────────────────────────────────────
 const icalFilters = computed(() => {

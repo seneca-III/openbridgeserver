@@ -72,6 +72,33 @@ def test_raw_translation_call_before_inline_tag_is_flagged():
     assert "$t('widgets.info.additionalValues')" in violations[0].snippet
 
 
+def test_raw_translation_call_mixed_with_interpolation_is_flagged():
+    src = """<template>
+  <p>{{ name }} $t('widgets.info.additionalValues')</p>
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-text"
+    assert "$t('widgets.info.additionalValues')" in violations[0].snippet
+
+
+def test_raw_translation_call_after_multiline_opening_tag_closes_is_flagged():
+    src = """<template>
+  <p
+    class="text-sm"> $t('widgets.info.additionalValues')</p>
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-text"
+    assert "$t('widgets.info.additionalValues')" in violations[0].snippet
+
+
 def test_interpolated_translation_call_is_allowed():
     src = """<template>
   <p>{{ $t('widgets.info.additionalValues', { max: MAX_EXTRA }) }}</p>
@@ -156,7 +183,18 @@ def test_bound_template_literal_attribute_is_flagged():
 
     assert len(violations) == 1
     assert violations[0].kind == "template-bound-attr"
-    assert violations[0].snippet == "Farbe ${i + 1}"
+    assert violations[0].snippet == "Farbe"
+
+
+def test_bound_translated_template_literal_expression_is_allowed():
+    src = """<template>
+  <button :title="`${children.length} ${children.length === 1 ? $t('breadcrumb.subpageSingular') : $t('breadcrumb.subpagePlural')}`" />
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/components/Breadcrumb.vue", src, EmptyAllowlist())
+
+    assert violations == []
 
 
 def test_bound_expression_literal_piece_is_flagged():

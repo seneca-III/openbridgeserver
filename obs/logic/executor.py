@@ -447,6 +447,12 @@ class GraphExecutor:
                     "sent": False,
                 }
 
+            case "wake_on_lan":
+                return {
+                    "_trigger": self._to_bool(inputs.get("trigger")),
+                    "sent": False,
+                }
+
             case "api_client":
                 # Async — fully handled by LogicManager after executor run
                 return {

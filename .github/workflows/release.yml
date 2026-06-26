@@ -175,12 +175,12 @@ jobs:
 
       - name: Set version and hash variables
         run: |
-          echo "VERSION=${GITHUB_REF##*/}" >> $GITHUB_ENV
-          echo "GITHASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "VERSION=${GITHUB_REF##*/}" >> "$GITHUB_ENV"
+          echo "GITHASH=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
           BASE=$(grep -m1 '^## ' RELEASENOTES.md | sed 's/^## *//')
           TAG="${GITHUB_REF##*/}"
           if [[ "$TAG" =~ (-RC[0-9]*)$ ]]; then RC="${BASH_REMATCH[1]}"; else RC=""; fi
-          echo "OBS_VERSION=${BASE}${RC}" >> $GITHUB_ENV
+          echo "OBS_VERSION=${BASE}${RC}" >> "$GITHUB_ENV"
 
       - name: Stamp gui/package.json version
         run: npm pkg set version="${VERSION}" --prefix gui
@@ -188,9 +188,9 @@ jobs:
       - name: Set prerelease flag
         run: |
           if [[ "${GITHUB_REF##*/}" =~ -RC ]]; then
-            echo "PRERELEASE=true" >> $GITHUB_ENV
+            echo "PRERELEASE=true" >> "$GITHUB_ENV"
           else
-            echo "PRERELEASE=false" >> $GITHUB_ENV
+            echo "PRERELEASE=false" >> "$GITHUB_ENV"
           fi
 
       - name: Create GitHub Release and Upload Asset

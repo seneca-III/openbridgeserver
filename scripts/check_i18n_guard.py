@@ -165,6 +165,54 @@ def is_bound_literal_technical(text: str) -> bool:
     return compact.startswith(("http://", "https://", "/", "./", "../", "#"))
 
 
+def iter_template_literal_chunks(expression: str, idx: int) -> tuple[int, list[str]]:
+    chunks: list[str] = []
+    current: list[str] = []
+    escaped = False
+    idx += 1
+
+    while idx < len(expression):
+        char = expression[idx]
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == "`":
+            chunks.append("".join(current))
+            return idx, chunks
+        elif char == "$" and idx + 1 < len(expression) and expression[idx + 1] == "{":
+            chunks.append("".join(current))
+            current = []
+            idx += 2
+            depth = 1
+            inner_quote: str | None = None
+            inner_escaped = False
+            while idx < len(expression) and depth > 0:
+                inner = expression[idx]
+                if inner_escaped:
+                    inner_escaped = False
+                elif inner == "\\":
+                    inner_escaped = True
+                elif inner_quote:
+                    if inner == inner_quote:
+                        inner_quote = None
+                elif inner in {"'", '"', "`"}:
+                    inner_quote = inner
+                elif inner == "{":
+                    depth += 1
+                elif inner == "}":
+                    depth -= 1
+                idx += 1
+            continue
+        else:
+            current.append(char)
+        idx += 1
+
+    chunks.append("".join(current))
+    return idx, chunks
+
+
 def iter_string_literals(expression: str) -> Iterable[tuple[int, str]]:
     idx = 0
     quote_chars = {"'", '"', "`"}
@@ -175,6 +223,13 @@ def iter_string_literals(expression: str) -> Iterable[tuple[int, str]]:
             continue
 
         start = idx
+        if quote == "`":
+            end, chunks = iter_template_literal_chunks(expression, idx)
+            for chunk in chunks:
+                yield start, chunk
+            idx = end + 1
+            continue
+
         idx += 1
         chars: list[str] = []
         escaped = False
@@ -213,10 +268,53 @@ def add_violations_from_bound_attrs(
                 sink.append(Violation(path=path, line=line, kind="template-bound-attr", snippet=normalize_text(literal)))
 
 
+def iter_visible_template_text(line: str, in_interpolation: bool, in_tag: bool) -> Iterable[str]:
+    idx = 0
+    chunk: list[str] = []
+
+    while idx < len(line):
+        if in_tag:
+            if line[idx] == ">":
+                in_tag = False
+            idx += 1
+            continue
+
+        if in_interpolation:
+            if line.startswith("}}", idx):
+                in_interpolation = False
+                idx += 2
+            else:
+                idx += 1
+            continue
+
+        if line.startswith("{{", idx):
+            if chunk:
+                yield "".join(chunk)
+                chunk = []
+            in_interpolation = True
+            idx += 2
+            continue
+
+        if line[idx] == "<":
+            if chunk:
+                yield "".join(chunk)
+                chunk = []
+            in_tag = True
+            idx += 1
+            continue
+
+        chunk.append(line[idx])
+        idx += 1
+
+    if chunk:
+        yield "".join(chunk)
+
+
 def raw_translation_text_violation(path: str, line_no: int, line: str, in_interpolation: bool, in_tag: bool) -> Violation | None:
-    text = normalize_text(HTML_TAG_RE.sub(" ", line))
-    if RAW_TRANSLATION_TEXT_RE.search(text) and not in_interpolation and not in_tag and "{{" not in text and "=" not in text:
-        return Violation(path=path, line=line_no, kind="template-text", snippet=text)
+    for chunk in iter_visible_template_text(line, in_interpolation, in_tag):
+        text = normalize_text(chunk)
+        if RAW_TRANSLATION_TEXT_RE.search(text):
+            return Violation(path=path, line=line_no, kind="template-text", snippet=text)
     return None
 
 

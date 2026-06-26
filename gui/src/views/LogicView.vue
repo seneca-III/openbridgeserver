@@ -61,7 +61,12 @@
     <!-- Main area -->
     <div class="flex flex-1 overflow-hidden">
       <!-- Node Palette -->
-      <NodePalette v-if="auth.isAdmin" :node-types="store.nodeTypes" />
+      <NodePalette
+        v-if="auth.isAdmin"
+        :node-types="store.nodeTypes"
+        :collapsed="paletteCollapsed"
+        @toggle="paletteCollapsed = !paletteCollapsed"
+      />
 
       <!-- Canvas -->
       <div class="flex-1 relative" ref="canvasWrapper"
@@ -224,7 +229,7 @@ const nodeTypeComponents = {
   // String
   string_concat: _generic,
   // Notification
-  notify_pushover: _generic, notify_sms: _generic,
+  notify_pushover: _generic, notify_sms: _generic, wake_on_lan: _generic,
   // Integration
   api_client: _generic, json_extractor: _generic, xml_extractor: _generic, substring_extractor: _generic,
   ical: _generic,
@@ -266,6 +271,9 @@ watch(() => activeGraph.value?.enabled, (enabled) => {
     },
   }))
 })
+const paletteCollapsed = ref(localStorage.getItem('logic_palette_collapsed') === '1')
+watch(paletteCollapsed, v => localStorage.setItem('logic_palette_collapsed', v ? '1' : '0'))
+
 const saving        = ref(false)
 const statusMsg     = ref(null)
 const canvasWrapper = ref(null)
