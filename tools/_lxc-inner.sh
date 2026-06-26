@@ -151,13 +151,22 @@ if r:
     bundle = next((a for a in r['assets'] if 'app-bundle' in a['name'] and a['name'].endswith('.tar.gz')), None)
     if bundle:
         print(bundle['browser_download_url'])
+    else:
+        print('')
+    # Prefer SHA-256 embedded in release notes body (new format).
+    # Fall back to the legacy .sha512 release asset for releases
+    # published before this migration (enables rollback/downgrade).
     body = r.get('body') or ''
     m = re.search(r'app-bundle[^\n]*\n\x60\x60\x60\s*\n([0-9a-f]{64})', body)
-    print(m.group(1) if m else '')
+    if m:
+        print('sha256:' + m.group(1))
+    else:
+        sha512 = next((a for a in r['assets'] if 'app-bundle' in a['name'] and a['name'].endswith('.tar.gz.sha512')), None)
+        print('sha512url:' + sha512['browser_download_url'] if sha512 else '')
 ")
 
 BUNDLE_URL=$(echo "$ASSET_INFO" | sed -n '1p')
-EXPECTED_SHA256=$(echo "$ASSET_INFO" | sed -n '2p')
+CHECKSUM_LINE=$(echo "$ASSET_INFO" | sed -n '2p')
 
 if [[ -z "$BUNDLE_URL" ]]; then
     echo "Error: missing app-bundle asset for $TARGET" >&2
@@ -172,13 +181,22 @@ trap "rm -rf $TMP" EXIT
 echo "Downloading $BUNDLE_URL ..."
 curl -fL "$BUNDLE_URL" -o "$TMP/$BUNDLE_FILENAME"
 
-if [[ -z "$EXPECTED_SHA256" ]]; then
-    echo "Error: no SHA-256 found in release notes for $TARGET." >&2
+if [[ "$CHECKSUM_LINE" == sha256:* ]]; then
+    EXPECTED_SHA256="${CHECKSUM_LINE#sha256:}"
+    echo "Verifying integrity (SHA-256) ..."
+    echo "${EXPECTED_SHA256}  ${BUNDLE_FILENAME}" | (cd "$TMP" && sha256sum -c -)
+elif [[ "$CHECKSUM_LINE" == sha512url:* ]]; then
+    CHECKSUM_URL="${CHECKSUM_LINE#sha512url:}"
+    CHECKSUM_FILENAME=$(basename "$CHECKSUM_URL")
+    echo "Downloading checksum (legacy SHA-512) ..."
+    curl -fL "$CHECKSUM_URL" -o "$TMP/$CHECKSUM_FILENAME"
+    echo "Verifying integrity (SHA-512) ..."
+    (cd "$TMP" && sha512sum -c "$CHECKSUM_FILENAME")
+else
+    echo "Error: no integrity checksum available for $TARGET." >&2
     echo "Integrity check is required; aborting." >&2
     exit 1
 fi
-echo "Verifying integrity ..."
-echo "${EXPECTED_SHA256}  ${BUNDLE_FILENAME}" | (cd "$TMP" && sha256sum -c -)
 
 systemctl stop "$SERVICE"
 
@@ -204,7 +222,9 @@ cp /tmp/obs-update obs-update
 echo "==> Creating app bundle..."
 tar -czf "/tmp/$APP_BUNDLE_FILE" obs/ gui_dist/ frontend_dist/ requirements.txt obs-update
 (cd /tmp && sha256sum "$APP_BUNDLE_FILE" > "$APP_BUNDLE_FILE.sha256")
-cp "/tmp/$APP_BUNDLE_FILE" "/tmp/$APP_BUNDLE_FILE.sha256" /output/
+# Backward-compat: pre-migration obs-update versions verify via a .sha512 asset.
+(cd /tmp && sha512sum "$APP_BUNDLE_FILE" > "$APP_BUNDLE_FILE.sha512")
+cp "/tmp/$APP_BUNDLE_FILE" "/tmp/$APP_BUNDLE_FILE.sha256" "/tmp/$APP_BUNDLE_FILE.sha512" /output/
 
 if [[ "${BUNDLE_ONLY}" == "true" ]]; then
     echo ""
