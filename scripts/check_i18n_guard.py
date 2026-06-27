@@ -221,6 +221,18 @@ def add_violations_from_matches(
         candidate = match.group(candidate_group)
         if should_flag(candidate, allowlist):
             sink.append(Violation(path=path, line=line, kind=kind, snippet=normalize_text(candidate)))
+            continue
+
+        seen: set[str] = set()
+        for start, literal in iter_string_literals(candidate):
+            snippet = normalize_text(literal)
+            if snippet in seen:
+                continue
+            if is_translation_key_argument(candidate, start):
+                continue
+            if should_flag(literal, allowlist, allow_technical_tokens=False):
+                sink.append(Violation(path=path, line=line, kind=kind, snippet=snippet))
+                seen.add(snippet)
 
 
 def is_translation_key_argument(expression: str, start: int) -> bool:

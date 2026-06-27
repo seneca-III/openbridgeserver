@@ -386,6 +386,15 @@ def test_parameterized_translated_script_template_literal_is_allowed():
     assert violations == []
 
 
+def test_script_template_literal_interpolation_literals_are_flagged():
+    src = """toast.success(`${ok ? 'Saved' : 'Failed'}`)
+"""
+
+    violations = gate.scan_script("frontend/src/widgets/Info/Config.test.ts", src, EmptyAllowlist())
+
+    assert [v.snippet for v in violations] == ["Saved", "Failed"]
+
+
 def test_multiline_template_comment_raw_translation_call_is_ignored():
     src = """<template>
   <!--
