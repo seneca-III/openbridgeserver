@@ -1,30 +1,60 @@
 <script setup lang="ts">
-import { reactive, watch, computed } from 'vue'
+import { computed, reactive, watch } from 'vue'
 
 const props = defineProps<{
-  modelValue: Record<string, unknown>
+  modelValue: Record<string, unknown> | null | undefined
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: Record<string, unknown>): void
 }>()
 
-const cfg = reactive({
-  label:           (props.modelValue.label          as string)  ?? '',
-  url:             (props.modelValue.url             as string)  ?? '',
-  streamType:      (props.modelValue.streamType      as string)  ?? 'mjpeg',
-  authType:        (props.modelValue.authType        as string)  ?? 'none',
-  username:        (props.modelValue.username        as string)  ?? '',
-  password:        (props.modelValue.password        as string)  ?? '',
-  apiKeyParam:     (props.modelValue.apiKeyParam     as string)  ?? 'token',
-  apiKeyValue:     (props.modelValue.apiKeyValue     as string)  ?? '',
-  refreshInterval: (props.modelValue.refreshInterval as number)  ?? 5,
-  aspectRatio:     (props.modelValue.aspectRatio     as string)  ?? '16/9',
-  objectFit:       (props.modelValue.objectFit       as string)  ?? 'contain',
-  useProxy:        (props.modelValue.useProxy        as boolean) ?? false,
-})
+type AuthType = 'none' | 'basic' | 'apikey'
+
+function normalizeAuthType(raw: unknown): AuthType {
+  if (typeof raw !== 'string') return 'none'
+  const v = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, '')
+  if (v === 'basic' || v.startsWith('basicauth')) return 'basic'
+  if (v === 'apikey' || v.startsWith('apikey')) return 'apikey'
+  return 'none'
+}
+
+function safeRecord(): Record<string, unknown> {
+  const mv = props.modelValue
+  return mv && typeof mv === 'object' && !Array.isArray(mv) ? mv : {}
+}
+
+function makeCfg(raw: Record<string, unknown>) {
+  return {
+    label:           (raw.label           as string)  ?? '',
+    url:             (raw.url             as string)  ?? '',
+    streamType:      (raw.streamType      as string)  ?? 'mjpeg',
+    authType:        normalizeAuthType(raw.authType),
+    username:        (raw.username        as string)  ?? '',
+    password:        (raw.password        as string)  ?? '',
+    apiKeyParam:     (raw.apiKeyParam     as string)  ?? 'token',
+    apiKeyValue:     (raw.apiKeyValue     as string)  ?? '',
+    refreshInterval: (raw.refreshInterval as number)  ?? 5,
+    aspectRatio:     (raw.aspectRatio     as string)  ?? '16/9',
+    objectFit:       (raw.objectFit       as string)  ?? 'contain',
+    useProxy:        (raw.useProxy        as boolean) ?? false,
+  }
+}
+
+const cfg = reactive(makeCfg(safeRecord()))
 
 watch(cfg, () => emit('update:modelValue', { ...cfg }), { deep: true })
+
+watch(
+  () => props.modelValue,
+  (newVal) => {
+    const raw = newVal && typeof newVal === 'object' && !Array.isArray(newVal) ? newVal : {}
+    const next = makeCfg(raw as Record<string, unknown>)
+    for (const key of Object.keys(next) as (keyof typeof next)[]) {
+      if (cfg[key] !== next[key]) (cfg as Record<string, unknown>)[key] = next[key]
+    }
+  },
+)
 
 const showBasicAuth  = computed(() => cfg.authType === 'basic')
 const showApiKeyAuth = computed(() => cfg.authType === 'apikey')
@@ -40,7 +70,7 @@ const showRefresh    = computed(() => cfg.streamType === 'snapshot')
       <input
         v-model="cfg.label"
         type="text"
-        placeholder="z.B. Eingang, Garten …"
+        :placeholder="$t('widgets.kamera.labelPlaceholder')"
         class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
       />
     </div>
@@ -157,7 +187,7 @@ const showRefresh    = computed(() => cfg.streamType === 'snapshot')
       />
       <label for="cam-proxy" class="text-xs text-gray-300 cursor-pointer">
         {{ $t('widgets.kamera.useProxy') }}
-        <span class="text-gray-500 font-normal ml-1">(Mixed-Content / HTTPS → HTTP)</span>
+        <span class="text-gray-500 font-normal ml-1">{{ $t('widgets.kamera.proxyMixedContentHint') }}</span>
       </label>
     </div>
 
