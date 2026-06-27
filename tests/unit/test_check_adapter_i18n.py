@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-_SCRIPT = REPO_ROOT / "scripts" / "check_adapter_i18n.py"
+_SCRIPT = REPO_ROOT / "tools" / "check_adapter_i18n.py"
 
 
 def _load_module():
