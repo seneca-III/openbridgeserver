@@ -240,7 +240,36 @@ def is_translation_key_argument(expression: str, start: int) -> bool:
     if call_start is None:
         return False
     closing_paren = find_balanced_end(expression, call_start, "(", ")")
-    return closing_paren is not None and start < closing_paren
+    if closing_paren is None:
+        return False
+    first_arg_end = find_first_argument_end(expression, call_start + 1, closing_paren)
+    return start < first_arg_end
+
+
+def find_first_argument_end(expression: str, start: int, end: int) -> int:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+
+    for idx in range(start, end):
+        char = expression[idx]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            return idx
+
+    return end
 
 
 def find_enclosing_translation_call(expression: str, start: int) -> int | None:
@@ -372,9 +401,40 @@ def has_top_level_conditional_after(expression: str, idx: int) -> bool:
     return False
 
 
+def has_top_level_translated_logical_after(expression: str, idx: int) -> bool:
+    depth = 0
+    quote: str | None = None
+    escaped = False
+
+    while idx < len(expression):
+        char = expression[idx]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote:
+            if char == quote:
+                quote = None
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth = max(0, depth - 1)
+        elif depth == 0 and expression.startswith(("&&", "||"), idx):
+            return re.search(r"(?:\$t|(?<![\w$])t)\s*\(", expression[idx + 2 :]) is not None
+        idx += 1
+
+    return False
+
+
 def is_non_rendered_condition_literal(expression: str, start: int, literal: str) -> bool:
     literal_end = start + len(literal) + 2
-    return has_top_level_conditional_after(expression, literal_end)
+    return has_top_level_conditional_after(expression, literal_end) or has_top_level_translated_logical_after(expression, literal_end)
+
+
+def strip_comments_preserve_lines(text: str) -> str:
+    return COMMENT_RE.sub(lambda match: "\n" * match.group(0).count("\n"), text)
 
 
 def add_violations_from_bound_attrs(
@@ -504,7 +564,7 @@ def scan_vue(path: str, content: str, allowlist: Allowlist) -> list[Violation]:
     blocks = template_blocks(content)
     for start, end, start_line, _outer_start, _outer_end in blocks:
         tpl = content[start:end]
-        tpl_without_comments = COMMENT_RE.sub("", tpl)
+        tpl_without_comments = strip_comments_preserve_lines(tpl)
         for match in BOUND_ATTR_RE.finditer(tpl_without_comments):
             line = start_line + tpl_without_comments.count("\n", 0, match.start())
             add_violations_from_bound_attrs(

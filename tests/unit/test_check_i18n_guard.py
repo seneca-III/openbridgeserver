@@ -230,6 +230,17 @@ def test_bound_expression_condition_literals_are_allowed_when_output_is_translat
     assert violations == []
 
 
+def test_bound_expression_logical_guard_literals_are_allowed_when_output_is_translated():
+    src = """<template>
+  <button :title="status === 'error' && $t('errors.title')" />
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/components/StatusButton.vue", src, EmptyAllowlist())
+
+    assert violations == []
+
+
 def test_bound_expression_literal_piece_is_flagged():
     src = """<template>
   <input :placeholder="'Room ' + index" />
@@ -267,6 +278,19 @@ def test_bound_mixed_translation_attribute_flags_literal_piece_only():
     assert len(violations) == 1
     assert violations[0].kind == "template-bound-attr"
     assert violations[0].snippet == "Room"
+
+
+def test_bound_translation_parameter_literals_are_flagged():
+    src = """<template>
+  <button :title="$t('status.message', { value: 'Hardcoded error' })" />
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/components/StatusButton.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].kind == "template-bound-attr"
+    assert violations[0].snippet == "Hardcoded error"
 
 
 def test_bound_expression_technical_route_literals_are_allowed():
@@ -421,6 +445,22 @@ def test_multiline_template_comment_bound_literal_attr_is_ignored():
     violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
 
     assert violations == []
+
+
+def test_multiline_template_comment_preserves_violation_line_numbers():
+    src = """<template>
+  <!--
+    hidden
+  -->
+  <p>Additional values</p>
+</template>
+"""
+
+    violations = gate.scan_vue("frontend/src/widgets/Info/Config.vue", src, EmptyAllowlist())
+
+    assert len(violations) == 1
+    assert violations[0].line == 5
+    assert violations[0].snippet == "Additional values"
 
 
 def test_static_template_text_still_gets_flagged():
