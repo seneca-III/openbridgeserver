@@ -61,6 +61,7 @@ async def visu_dist_client(tmp_path):
         for name, content in [
             ("favicon.svg", b'<svg xmlns="http://www.w3.org/2000/svg"/>'),
             ("manifest.webmanifest", b'{"name":"OBS Visu"}'),
+            ("apple-touch-icon.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 8),
             ("index.html", b"<html/>"),
         ]:
             target = frontend_dist / name
@@ -128,6 +129,7 @@ async def gui_dist_client(tmp_path):
         for name, content in [
             ("favicon.svg", b'<svg xmlns="http://www.w3.org/2000/svg"/>'),
             ("manifest.webmanifest", b'{"name":"OBS Admin"}'),
+            ("apple-touch-icon.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 8),
             ("index.html", b"<html/>"),
         ]:
             target = gui_dist / name
@@ -176,3 +178,17 @@ async def test_admin_manifest_returns_json(gui_dist_client):
     resp = await gui_dist_client.get("/manifest.webmanifest")
     assert resp.status_code == 200
     assert "name" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_visu_apple_touch_icon_returns_png(visu_dist_client):
+    resp = await visu_dist_client.get("/visu/apple-touch-icon.png")
+    assert resp.status_code == 200
+    assert resp.headers.get("content-type", "").startswith("image/png")
+
+
+@pytest.mark.asyncio
+async def test_admin_apple_touch_icon_returns_png(gui_dist_client):
+    resp = await gui_dist_client.get("/apple-touch-icon.png")
+    assert resp.status_code == 200
+    assert resp.headers.get("content-type", "").startswith("image/png")
