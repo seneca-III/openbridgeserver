@@ -1297,6 +1297,32 @@ class TestOnTelegramEdgeCases:
         assert event.value == "ON"
 
     @pytest.mark.asyncio
+    async def test_value_map_is_applied_for_uncertain_quality(self, mock_bus):
+        """value_map must still run for quality='uncertain' (decode-error fallback).
+        Users can map raw hex strings to stable values for dashboards/logic."""
+        from unittest.mock import MagicMock
+
+        adapter = self._make_adapter(mock_bus)
+        bad_dpt = MagicMock()
+        bad_dpt.dpt_id = "DPT9.001"
+        bad_dpt.decoder = MagicMock(side_effect=ValueError("bad bytes"))
+        binding = make_binding(
+            {"group_address": "1/2/3", "dpt_id": "DPT9.001"},
+            value_map={"0c7a": "KNOWN_PATTERN"},
+        )
+        adapter._ga_source_map["1/2/3"] = [(binding, bad_dpt)]
+
+        telegram = Telegram(
+            destination_address=GroupAddress("1/2/3"),
+            payload=GroupValueWrite(DPTArray([0x0C, 0x7A])),
+        )
+        await adapter._on_telegram(telegram)
+
+        event = mock_bus.publish.call_args[0][0]
+        assert event.quality == "uncertain"
+        assert event.value == "KNOWN_PATTERN"
+
+    @pytest.mark.asyncio
     async def test_group_value_read_triggers_handle_read_request(self, mock_bus):
         from unittest.mock import AsyncMock, patch
 
