@@ -60,6 +60,23 @@ describe('BindingFormMessage', () => {
     expect(cfg.providers[0]).toEqual({ provider: 'telegram', target: 'family' })
   })
 
+  it('updates editable text and boolean fields', async () => {
+    const cfg = { title: '', cooldown_seconds: 0, message: 'old', send_on_change: true, providers: [] }
+    const wrapper = mk({ cfg })
+    const formCfg = wrapper.props('cfg')
+
+    const inputs = wrapper.findAll('input')
+    await inputs.find(input => input.element.value === '').setValue('Alarm')
+    await wrapper.find('input[type="number"]').setValue(42)
+    await wrapper.find('textarea').setValue('new template')
+    await wrapper.find('input[type="checkbox"]').setChecked(false)
+
+    expect(formCfg.title).toBe('Alarm')
+    expect(formCfg.cooldown_seconds).toBe(42)
+    expect(formCfg.message).toBe('new template')
+    expect(formCfg.send_on_change).toBe(false)
+  })
+
   it('disables add target when no configured provider targets exist', () => {
     const wrapper = mk({ selectedInstance: { config: { providers: {} } } })
 

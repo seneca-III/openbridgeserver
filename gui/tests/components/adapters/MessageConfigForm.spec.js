@@ -69,6 +69,23 @@ describe('MessageConfigForm', () => {
     expect(getModel().providers['seven.io'].targets.default.channel).toBe('voice')
   })
 
+  it('creates unique seven.io target names and updates recipient', async () => {
+    const { wrapper, getModel } = mountForm({
+      providers: {
+        'seven.io': { enabled: true, targets: { default: { channel: 'sms' } } },
+      },
+    })
+    const addButtons = wrapper.findAll('button').filter(button => button.text() === 'Ziel hinzufügen')
+
+    await addButtons[2].trigger('click')
+    await flushPromises()
+    const textInputs = wrapper.findAll('input').filter(input => input.attributes('type') === 'text')
+    await textInputs[textInputs.length - 1].setValue('+4100000000')
+
+    expect(getModel().providers['seven.io'].targets.target_2.channel).toBe('sms')
+    expect(getModel().providers['seven.io'].targets.target_2.to).toBe('+4100000000')
+  })
+
   it('updates a Telegram chat target', async () => {
     const { wrapper, getModel } = mountForm()
     const checkboxes = wrapper.findAll('input[type="checkbox"]')
@@ -85,5 +102,21 @@ describe('MessageConfigForm', () => {
 
     expect(getModel().providers.telegram.bot_token).toBe('bot-token')
     expect(getModel().providers.telegram.targets.default.chat_id).toBe('123456')
+  })
+
+  it('ignores empty and duplicate target renames', async () => {
+    const { wrapper, getModel } = mountForm({
+      providers: {
+        pushover: { enabled: true, targets: { default: {}, other: {} } },
+      },
+    })
+    const targetNameInputs = wrapper.findAll('input').filter(input => input.attributes('type') !== 'checkbox' && input.element.value !== undefined)
+
+    await targetNameInputs[0].setValue('')
+    await targetNameInputs[0].trigger('change')
+    await targetNameInputs[0].setValue('other')
+    await targetNameInputs[0].trigger('change')
+
+    expect(Object.keys(getModel().providers.pushover.targets).sort()).toEqual(['default', 'other'])
   })
 })

@@ -288,6 +288,40 @@ describe('BindingForm — MESSAGE create submit', () => {
     }))
     w.unmount()
   })
+
+  it('applies MESSAGE fallback defaults for empty optional config values', async () => {
+    const w = await mountForm({
+      initial: {
+        id: 'binding-message-defaults',
+        adapter_type: 'MESSAGE',
+        adapter_instance_id: 'msg-1',
+        direction: 'SOURCE',
+        enabled: true,
+        config: {
+          operator: '',
+          compare_value: null,
+          message: '',
+          providers: null,
+          send_on_change: null,
+          cooldown_seconds: null,
+        },
+      },
+    })
+    await submit(w)
+
+    expect(updateBinding).toHaveBeenCalledWith('dp-1', 'binding-message-defaults', expect.objectContaining({
+      direction: 'SOURCE',
+      config: expect.objectContaining({
+        operator: '==',
+        compare_value: '',
+        message: '###DPN###: ###DP### ###DPU###',
+        providers: [],
+        send_on_change: true,
+        cooldown_seconds: 0,
+      }),
+    }))
+    w.unmount()
+  })
 })
 
 // ─── Submit error handling ────────────────────────────────────────────────────

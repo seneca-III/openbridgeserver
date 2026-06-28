@@ -147,6 +147,18 @@ describe('AdaptersView — initial render', () => {
     expect(wrapper.text()).toContain('Telegram')
     expect(wrapper.text()).toContain('seven.io')
   })
+
+  it('renders the MESSAGE config form when editing MESSAGE instances', async () => {
+    const { wrapper } = await mountAdapters({
+      instances: [makeInstance({ id: 42, adapter_type: 'MESSAGE', name: 'Notifications', config: { providers: {} } })],
+    })
+    await wrapper.find('[data-testid="btn-expand-42"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Pushover')
+    expect(wrapper.text()).toContain('Telegram')
+    expect(wrapper.text()).toContain('seven.io')
+  })
 })
 
 // ─── Demo mode ───────────────────────────────────────────────────────────────
