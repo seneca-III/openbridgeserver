@@ -191,9 +191,9 @@ class GraphExecutor:
         return []
 
     @staticmethod
-    def _condition_value(rule: dict[str, Any], key: str, fallback: Any = None) -> Any:
+    def _condition_value(rule: dict[str, Any], key: str, fallback: Any = None, *, blank_is_missing: bool = False) -> Any:
         value = rule.get(key, fallback)
-        if isinstance(value, str) and value.strip() == "":
+        if blank_is_missing and isinstance(value, str) and value.strip() == "":
             return fallback
         return value
 
@@ -205,8 +205,8 @@ class GraphExecutor:
             return False
 
         if operator_key in _RANGE_OPS:
-            lo = cls._condition_value(rule, "min", expected)
-            hi = cls._condition_value(rule, "max", cls._condition_value(rule, "value_to"))
+            lo = cls._condition_value(rule, "min", expected, blank_is_missing=True)
+            hi = cls._condition_value(rule, "max", cls._condition_value(rule, "value_to", blank_is_missing=True), blank_is_missing=True)
             num_value, num_lo, num_hi = cls._try_num(input_value), cls._try_num(lo), cls._try_num(hi)
             if num_value is None or num_lo is None or num_hi is None:
                 return False

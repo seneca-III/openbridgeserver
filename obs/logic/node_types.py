@@ -182,10 +182,7 @@ BUILTIN_NODE_TYPES: list[NodeTypeDef] = [
         config_schema={
             "conditions": {
                 "type": "string",
-                "default": (
-                    '[{"handle":"out_1","name":"Ausgang 1","operator":"eq","value":""},'
-                    '{"handle":"out_2","name":"Ausgang 2","operator":"eq","value":""}]'
-                ),
+                "default": ('[{"handle":"out_1","operator":"eq","value":""},{"handle":"out_2","operator":"eq","value":""}]'),
                 "label": "Bedingungen",
             },
         },
@@ -207,7 +204,7 @@ BUILTIN_NODE_TYPES: list[NodeTypeDef] = [
             },
             "rules": {
                 "type": "string",
-                "default": ('[{"name":"Regel 1","operator":"eq","value":"","result":""},{"name":"Regel 2","operator":"eq","value":"","result":""}]'),
+                "default": ('[{"operator":"eq","value":"","result":""},{"operator":"eq","value":"","result":""}]'),
                 "label": "Regeln",
             },
             "has_default": {"type": "boolean", "default": False, "label": "Sonst-Wert verwenden"},

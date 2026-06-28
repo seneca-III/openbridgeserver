@@ -79,6 +79,21 @@ const props = defineProps({
   data: { type: Object, default: () => ({}) },
 })
 
+function parseRowList(raw) {
+  if (Array.isArray(raw)) {
+    return raw.filter(row => row && typeof row === 'object' && !Array.isArray(row))
+  }
+  if (typeof raw !== 'string') return []
+  try {
+    const parsed = JSON.parse(raw || '[]')
+    return Array.isArray(parsed)
+      ? parsed.filter(row => row && typeof row === 'object' && !Array.isArray(row))
+      : []
+  } catch (_) {
+    return []
+  }
+}
+
 // ── Node definitions ───────────────────────────────────────────────────────
 const NODE_DEFS = computed(() => ({
   const_value:  { label: 'Festwert',    color: '#475569', inputs: [],                                                                                                  outputs: [{id:'value',      label:t('logic.ports.value')}]       },
@@ -192,9 +207,8 @@ const def = computed(() => {
     return { ...base, label, outputs }
   }
   if (props.type === 'decision') {
-    let conditions = []
-    try { conditions = JSON.parse(props.data?.conditions || '[]') } catch (_) { conditions = [] }
-    if (!Array.isArray(conditions) || conditions.length === 0) {
+    let conditions = parseRowList(props.data?.conditions)
+    if (conditions.length === 0) {
       conditions = [
         { handle: 'out_1', name: t('logic.nodeConfig.decision.defaultOutput', { n: 1 }) },
         { handle: 'out_2', name: t('logic.nodeConfig.decision.defaultOutput', { n: 2 }) },
@@ -246,15 +260,13 @@ const summary = computed(() => {
   if (props.type === 'compare')      return `A ${d.operator ?? '>'} B`
   if (props.type === 'hysteresis')   return `ON≥${d.threshold_on ?? 25}  OFF≤${d.threshold_off ?? 20}`
   if (props.type === 'decision') {
-    let conditions = []
-    try { conditions = JSON.parse(d.conditions || '[]') } catch (_) { conditions = [] }
-    return t('logic.summary.rules', { n: Array.isArray(conditions) && conditions.length ? conditions.length : 2 })
+    const conditions = parseRowList(d.conditions)
+    return t('logic.summary.rules', { n: conditions.length || 2 })
   }
   if (props.type === 'value_mapping') {
-    let rules = []
-    try { rules = JSON.parse(d.rules || '[]') } catch (_) { rules = [] }
+    const rules = parseRowList(d.rules)
     const type = d.output_type || 'string'
-    return `${type} · ${t('logic.summary.rules', { n: Array.isArray(rules) && rules.length ? rules.length : 2 })}`
+    return `${type} · ${t('logic.summary.rules', { n: rules.length || 2 })}`
   }
   if (props.type === 'math_formula') return d.formula || 'a + b'
   if (props.type === 'math_map')     return `[${d.in_min ?? 0}‒${d.in_max ?? 100}] → [${d.out_min ?? 0}‒${d.out_max ?? 1}]`

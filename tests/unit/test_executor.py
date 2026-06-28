@@ -420,6 +420,15 @@ class TestDecisionNode:
 
         assert out["match"] is True
 
+    def test_equality_condition_can_match_empty_string(self):
+        out = run_single(
+            "decision",
+            {"conditions": [{"handle": "empty", "operator": "eq", "value": ""}]},
+            {"value": ""},
+        )
+
+        assert out["empty"] is True
+
     def test_invalid_rule_json_falls_back_to_default_outputs(self):
         out = run_single("decision", {"conditions": "not json"}, {"value": "on"})
 
