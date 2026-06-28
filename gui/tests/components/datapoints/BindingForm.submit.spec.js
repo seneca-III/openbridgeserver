@@ -32,6 +32,7 @@ beforeEach(() => {
       snmpWalk:           vi.fn().mockResolvedValue({ data: [] }),
       getZsuHolidays:     vi.fn().mockResolvedValue({ data: [] }),
     },
+    knxprojApi: { listGA: vi.fn().mockResolvedValue({ data: { total: 0, items: [] } }) },
   }))
 })
 

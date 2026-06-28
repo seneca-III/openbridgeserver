@@ -40,6 +40,7 @@ beforeEach(() => {
     iconsApi,
     navLinksApi:   { list: vi.fn().mockResolvedValue({ data: [] }) },
     supportApi:    { categories: vi.fn().mockResolvedValue({ data: [] }), getDebugStatus: vi.fn().mockResolvedValue({ data: { active: false, level: 'INFO', until: null } }) },
+    hierarchyApi:  { listTrees: vi.fn().mockResolvedValue({ data: [] }), getTreeNodes: vi.fn().mockResolvedValue({ data: [] }), createTree: vi.fn(), updateTree: vi.fn(), deleteTree: vi.fn(), createNode: vi.fn(), updateNode: vi.fn(), deleteNode: vi.fn(), importFromEts: vi.fn() },
   }))
 })
 

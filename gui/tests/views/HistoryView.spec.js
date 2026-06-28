@@ -74,6 +74,7 @@ async function mountHistory({
     settingsApi: { get: vi.fn().mockResolvedValue({ data: {} }) },
     authApi:     { login: vi.fn(), me: vi.fn() },
     navLinksApi: { list: vi.fn().mockResolvedValue({ data: [] }) },
+    searchApi:   { search: vi.fn().mockResolvedValue({ data: { items: [] } }) },
   }))
 
   const pinia = createPinia()

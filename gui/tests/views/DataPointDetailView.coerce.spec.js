@@ -16,6 +16,9 @@ const apiMocks = vi.hoisted(() => ({
   systemApi: {
     datatypes: vi.fn(),
   },
+  searchApi: {
+    search: vi.fn(),
+  },
 }))
 
 vi.mock('@/api/client', () => apiMocks)

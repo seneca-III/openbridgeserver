@@ -57,6 +57,7 @@ async function mountDashboard({
   vi.doMock('@/api/client', () => ({
     systemApi:  { health: vi.fn().mockResolvedValue({ data: health }) },
     searchApi:  { search: vi.fn().mockResolvedValue({ data: { items: dps, total: dps.length, pages: 1 } }) },
+    dpApi:      { listAll: vi.fn().mockResolvedValue({ data: { items: [] } }) },
     adapterApi: {
       listInstances: vi.fn().mockResolvedValue({ data: adapters }),
       list: vi.fn().mockResolvedValue({ data: [] }),

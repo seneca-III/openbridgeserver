@@ -8,6 +8,7 @@ beforeEach(() => {
     dpApi:       { list: vi.fn().mockResolvedValue({ data: { items: [] } }) },
     searchApi:   { search: vi.fn().mockResolvedValue({ data: { items: [] } }) },
     securityApi: { checkUrlTarget: vi.fn(), addUrlTarget: vi.fn() },
+    authApi:     { login: vi.fn(), me: vi.fn() },
   }))
 })
 

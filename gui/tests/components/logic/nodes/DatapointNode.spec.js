@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-const HANDLE_STUB = { template: '<div class="handle" :data-type="type" :data-id="id" />', props: ['type', 'id', 'position', 'style'] }
-
-const removeNodesMock = vi.fn()
+const { HANDLE_STUB, removeNodesMock } = vi.hoisted(() => ({
+  HANDLE_STUB:     { template: '<div class="handle" :data-type="type" :data-id="id" />', props: ['type', 'id', 'position', 'style'] },
+  removeNodesMock: vi.fn(),
+}))
 
 vi.mock('@vue-flow/core', () => ({
   Handle:    HANDLE_STUB,

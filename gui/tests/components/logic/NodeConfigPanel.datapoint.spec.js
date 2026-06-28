@@ -12,6 +12,7 @@ beforeEach(() => {
     dpApi:      { list: dpList },
     searchApi:  { search: dpSearch },
     securityApi: { checkUrlTarget: vi.fn(), addUrlTarget: vi.fn() },
+    authApi:     { login: vi.fn(), me: vi.fn() },
   }))
 })
 
