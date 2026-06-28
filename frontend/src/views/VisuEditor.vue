@@ -371,6 +371,13 @@ function widgetStyle(w: WidgetInstance) {
   }
 }
 
+function widgetChrome(w: WidgetInstance): string {
+  const v = w.config?.chrome_variant
+  if (v === 'flat')    return 'overflow-hidden'
+  if (v === 'outline') return 'rounded-xl border border-gray-300 dark:border-gray-600 overflow-hidden'
+  return 'bg-gray-100 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden'
+}
+
 // ── Drag & Resize ─────────────────────────────────────────────────────────────
 interface DragState {
   type: 'move' | 'resize'
@@ -532,7 +539,14 @@ function removeSelected() {
 // ── Config aktualisieren ──────────────────────────────────────────────────────
 function updateConfig(newCfg: Record<string, unknown>) {
   if (!selectedWidget.value) return
-  selectedWidget.value.config = withWidgetDefaults(selectedWidget.value.type, newCfg)
+  const nextCfg = { ...newCfg }
+  if (
+    selectedWidget.value.config?.chrome_variant !== undefined
+    && !Object.prototype.hasOwnProperty.call(newCfg, 'chrome_variant')
+  ) {
+    nextCfg.chrome_variant = selectedWidget.value.config.chrome_variant
+  }
+  selectedWidget.value.config = withWidgetDefaults(selectedWidget.value.type, nextCfg)
 }
 
 function setDataPoint(id: string | null) {
@@ -847,7 +861,10 @@ const showSettings = ref(false)
             @click.stop="selectedId = w.id"
           >
             <!-- Widget-Vorschau (echte Komponente, editorMode=true) -->
-            <div class="w-full h-full bg-gray-100 dark:bg-gray-800 pointer-events-none">
+            <div
+              class="w-full h-full pointer-events-none"
+              :class="widgetChrome(w)"
+            >
               <component
                 :is="WidgetRegistry.get(w.type)?.component"
                 v-if="WidgetRegistry.get(w.type)"
