@@ -53,7 +53,7 @@ class SevenIoProvider:
         if sender:
             payload["from"] = sender
         endpoint = "voice" if target.channel == SevenIoChannel.VOICE else "sms"
-        headers = {"X-Api-Key": cfg.api_key}
+        headers = {"X-Api-Key": cfg.api_key, "Accept": "application/json"}
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(f"https://gateway.seven.io/api/{endpoint}", data=payload, headers=headers)
         if response.status_code >= 400:
@@ -71,10 +71,12 @@ def _sevenio_response_ok(response: httpx.Response) -> tuple[bool, str]:
         body_text = (getattr(response, "text", "") or "").strip()
         if not body_text:
             return True, ""
+        code = body_text.split()[0].strip()
+        if code in {"1", "100"}:
+            return True, ""
         try:
             body = json.loads(body_text)
         except json.JSONDecodeError:
-            code = body_text.split()[0].strip()
             return (code == "100", f"seven.io code {code}" if code != "100" else "")
 
     if not isinstance(body, dict | list):

@@ -58,4 +58,26 @@ class PushoverProvider:
             response = await client.post("https://api.pushover.net/1/messages.json", data=payload)
         if response.status_code >= 400:
             return MessageSendResult("pushover", target_name, False, f"HTTP {response.status_code}")
+        ok, detail = _pushover_response_ok(response)
+        if not ok:
+            return MessageSendResult("pushover", target_name, False, detail)
         return MessageSendResult("pushover", target_name, True)
+
+
+def _pushover_response_ok(response: httpx.Response) -> tuple[bool, str]:
+    try:
+        body = response.json()
+    except Exception:
+        return True, ""
+
+    if not isinstance(body, dict) or "status" not in body:
+        return True, ""
+
+    status = body["status"]
+    if status is True or status == 1 or (isinstance(status, str) and status.strip().lower() in {"1", "true"}):
+        return True, ""
+
+    errors = body.get("errors")
+    if isinstance(errors, list) and errors:
+        return False, "; ".join(str(error) for error in errors)
+    return False, f"pushover status={status}"

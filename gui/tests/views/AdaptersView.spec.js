@@ -422,6 +422,14 @@ describe('AdaptersView — test connection', () => {
 
     expect(wrapper.text()).toContain('Timeout')
   })
+
+  it('does not show the generic test button for MESSAGE instances', async () => {
+    const { wrapper } = await mountAdapters({ instances: [makeInstance({ adapter_type: 'MESSAGE', name: 'Nachrichten' })] })
+    await wrapper.find('[data-testid="btn-expand-1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('button').some(b => b.text() === 'Verbindung testen')).toBe(false)
+  })
 })
 
 // ─── Restart instance ─────────────────────────────────────────────────────────

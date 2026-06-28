@@ -549,9 +549,9 @@ async def test_send_to_targets_reports_missing_disabled_and_unknown_providers(bu
 @pytest.mark.asyncio
 async def test_pushover_provider_posts_payload(monkeypatch):
     _FakeAsyncClient.calls = []
-    _FakeAsyncClient.json_body = None
+    _FakeAsyncClient.json_body = {"status": 1}
     _FakeAsyncClient.status_code = 200
-    _FakeAsyncClient.text = "100"
+    _FakeAsyncClient.text = ""
     monkeypatch.setattr("obs.adapters.message.providers.pushover.httpx.AsyncClient", _FakeAsyncClient)
 
     result = await PushoverProvider().send(
@@ -600,6 +600,27 @@ async def test_pushover_provider_reports_http_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pushover_provider_reports_body_failure(monkeypatch):
+    _FakeAsyncClient.calls = []
+    _FakeAsyncClient.json_body = {"status": 0, "errors": ["application token is invalid"]}
+    _FakeAsyncClient.status_code = 200
+    _FakeAsyncClient.text = ""
+    monkeypatch.setattr("obs.adapters.message.providers.pushover.httpx.AsyncClient", _FakeAsyncClient)
+
+    result = await PushoverProvider().send(
+        provider_config={"enabled": True, "api_token": "app", "targets": {}},
+        target_name="phone",
+        target_config={"user_key": "user"},
+        title=None,
+        message="Body",
+        context={},
+    )
+
+    assert result.ok is False
+    assert result.detail == "application token is invalid"
+
+
+@pytest.mark.asyncio
 async def test_telegram_provider_posts_message(monkeypatch):
     _FakeAsyncClient.calls = []
     _FakeAsyncClient.json_body = None
@@ -642,7 +663,7 @@ async def test_sevenio_provider_posts_voice_payload(monkeypatch):
     assert result.ok is True
     url, kwargs, _timeout = _FakeAsyncClient.calls[0]
     assert url == "https://gateway.seven.io/api/voice"
-    assert kwargs["headers"] == {"X-Api-Key": "key"}
+    assert kwargs["headers"] == {"X-Api-Key": "key", "Accept": "application/json"}
     assert kwargs["data"] == {"to": "+4100000000", "text": "Alarm: Door", "from": "Home"}
 
 

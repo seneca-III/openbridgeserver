@@ -216,7 +216,7 @@
           </div>
 
           <div v-if="!isDemo" class="flex gap-3 flex-wrap">
-            <button v-if="a.adapter_type !== 'ANWESENHEITSSIMULATION' && a.adapter_type !== 'SNMP'" @click="testConnection(a)" class="btn-secondary btn-sm" :disabled="busy[a.id] === 'test'"
+            <button v-if="a.adapter_type !== 'ANWESENHEITSSIMULATION' && a.adapter_type !== 'SNMP' && a.adapter_type !== 'MESSAGE'" @click="testConnection(a)" class="btn-secondary btn-sm" :disabled="busy[a.id] === 'test'"
               :title="$t('adapters.testConnectionTitle')">
               <Spinner v-if="busy[a.id] === 'test'" size="xs" color="slate" />
               {{ $t('adapters.testConnection') }}
