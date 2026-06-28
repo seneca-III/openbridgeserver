@@ -539,6 +539,44 @@ def _send_wol_packet(mac: str, broadcast: str, port: int) -> None:
         sock.sendto(magic, (broadcast, port))
 
 
+async def _ping_host(host: str, count: int, timeout_s: float) -> tuple[bool, float | None]:
+    """Ping *host* and return (reachable, latency_ms).
+
+    Uses the system ping binary so no elevated privileges are required.
+    timeout_s is passed to ping as the per-packet deadline; an additional
+    2-second asyncio safety timeout is layered on top to handle hangs.
+    """
+    import sys  # noqa: PLC0415
+
+    count = max(1, int(count))
+    timeout_int = max(1, int(timeout_s))
+    if sys.platform == "darwin":
+        cmd = ["ping", "-c", str(count), "-t", str(timeout_int), host]
+    else:
+        cmd = ["ping", "-c", str(count), "-W", str(timeout_int), host]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_s + 2)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return False, None
+        reachable = proc.returncode == 0
+        latency_ms: float | None = None
+        if reachable:
+            m = re.search(r"time[<=](\d+(?:\.\d+)?)\s*ms", stdout.decode(errors="replace"))
+            if m:
+                latency_ms = float(m.group(1))
+        return reachable, latency_ms
+    except Exception:
+        return False, None
+
+
 def _build_ical_fetch_targets(url: str) -> tuple[list[str], dict[str, str], dict[str, str]]:
     parsed = _parse_http_url(url)
     if not parsed:
@@ -1302,6 +1340,73 @@ class LogicManager:
                 wol_node_ids = {n.id for n in flow.nodes if n.type == "wake_on_lan"}
                 for nid, vals in wol_second_outputs.items():
                     if nid not in wol_node_ids and nid in wol_descendants:
+                        outputs[nid] = vals
+
+        # ── Handle host_check ─────────────────────────────────────────────
+        # Rising-edge trigger (same cron-exemption logic as wake_on_lan):
+        # ping is sent only on the False→True transition of _trigger, or on
+        # every cron tick if this node is reachable from a firing cron node.
+        triggered_host_check_nodes: set[str] = set()
+        for node in flow.nodes:
+            if node.type != "host_check":
+                continue
+            out = outputs.get(node.id, {})
+            hyst_hc = hyst.setdefault(node.id, {})
+            is_triggered = GraphExecutor._to_bool(out.get("_trigger"))
+            was_triggered = hyst_hc.get("hc_prev_trigger", False)
+            is_cron_triggered = node.id in cron_reachable
+            if not is_triggered:
+                hyst_hc["hc_prev_trigger"] = False
+                continue
+            if was_triggered and not is_cron_triggered:
+                continue
+            host = (node.data.get("host") or "").strip()
+            if not host:
+                logger.warning("host_check: host missing on node %s", node.id[:8])
+                continue
+            timeout_s = float(node.data.get("timeout_s") or 1)
+            count = max(1, int(node.data.get("count") or 1))
+            try:
+                reachable, latency_ms = await _ping_host(host, count, timeout_s)
+                hyst_hc["hc_prev_trigger"] = True
+                outputs[node.id]["reachable"] = reachable
+                outputs[node.id]["latency_ms"] = latency_ms
+                triggered_host_check_nodes.add(node.id)
+                logger.info(
+                    "Graph %s: host_check %s → reachable=%s latency=%s ms",
+                    graph_id[:8],
+                    host,
+                    reachable,
+                    f"{latency_ms:.1f}" if latency_ms is not None else "—",
+                )
+            except Exception as exc:
+                logger.warning("Graph %s: host_check %s failed: %s", graph_id[:8], host, exc)
+
+        # ── Re-propagate host_check outputs to downstream nodes ───────────
+        if triggered_host_check_nodes:
+            hc_downstream_overrides: dict[str, dict[str, Any]] = {}
+            for e in flow.edges:
+                if e.source in triggered_host_check_nodes:
+                    src_handle = e.sourceHandle or "out"
+                    tgt_handle = e.targetHandle or "in"
+                    hc_downstream_overrides.setdefault(e.target, {})[tgt_handle] = GraphExecutor._get_output_value(outputs[e.source], src_handle)
+            if hc_downstream_overrides:
+                hc_merged: dict[str, dict[str, Any]] = {nid: dict(vals) for nid, vals in aug_overrides.items()}
+                for nid, vals in hc_downstream_overrides.items():
+                    hc_merged.setdefault(nid, {}).update(vals)
+                hc_second_executor = GraphExecutor(flow, copy.deepcopy(hyst), self._app_config)
+                hc_second_outputs = hc_second_executor.execute(hc_merged)
+                hc_descendants: set[str] = set()
+                queue: list[str] = list(triggered_host_check_nodes)
+                while queue:
+                    nid = queue.pop()
+                    for e in flow.edges:
+                        if e.source == nid and e.target not in hc_descendants:
+                            hc_descendants.add(e.target)
+                            queue.append(e.target)
+                hc_node_ids = {n.id for n in flow.nodes if n.type == "host_check"}
+                for nid, vals in hc_second_outputs.items():
+                    if nid not in hc_node_ids and nid in hc_descendants:
                         outputs[nid] = vals
 
         # ── Handle api_client ─────────────────────────────────────────────
