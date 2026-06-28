@@ -13,6 +13,8 @@ Covers:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from obs.logic.executor import ExecutionError, GraphExecutor
@@ -409,6 +411,47 @@ class TestDecisionNode:
 
         assert out == {"out_1": False, "out_2": False}
 
+    def test_conditions_can_be_loaded_from_json_string(self):
+        out = run_single(
+            "decision",
+            {"conditions": json.dumps([{"handle": "match", "operator": "eq", "value": "on"}])},
+            {"value": "on"},
+        )
+
+        assert out["match"] is True
+
+    def test_invalid_rule_json_falls_back_to_default_outputs(self):
+        out = run_single("decision", {"conditions": "not json"}, {"value": "on"})
+
+        assert out == {"out_1": False, "out_2": False}
+
+    def test_invalid_regex_condition_returns_false(self):
+        out = run_single(
+            "decision",
+            {"conditions": [{"handle": "bad_re", "operator": "regex", "value": "["}]},
+            {"value": "abc"},
+        )
+
+        assert out["bad_re"] is False
+
+    def test_case_sensitive_text_condition(self):
+        out = run_single(
+            "decision",
+            {"conditions": [{"handle": "case", "operator": "contains", "value": "OPEN", "case_sensitive": True}]},
+            {"value": "door open"},
+        )
+
+        assert out["case"] is False
+
+    def test_range_accepts_value_and_value_to_aliases(self):
+        out = run_single(
+            "decision",
+            {"conditions": [{"handle": "in_range", "operator": "range", "value": 10, "value_to": 20}]},
+            {"value": 15},
+        )
+
+        assert out["in_range"] is True
+
 
 class TestValueMappingNode:
     def test_first_matching_rule_wins(self):
@@ -471,6 +514,31 @@ class TestValueMappingNode:
         )
 
         assert out["result"] is None
+
+    def test_string_false_default_flag_is_not_treated_as_enabled(self):
+        out = run_single(
+            "value_mapping",
+            {
+                "rules": [{"operator": "eq", "value": "open", "result": "yes"}],
+                "has_default": "false",
+                "default_value": "fallback",
+            },
+            {"value": "closed"},
+        )
+
+        assert out["result"] is None
+
+    def test_invalid_int_result_coerces_to_zero(self):
+        out = run_single(
+            "value_mapping",
+            {
+                "output_type": "int",
+                "rules": [{"operator": "eq", "value": "on", "result": "not-int"}],
+            },
+            {"value": "on"},
+        )
+
+        assert out["result"] == 0
 
 
 # ===========================================================================

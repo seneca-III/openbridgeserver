@@ -71,6 +71,28 @@ describe('GenericNode — handles', () => {
     const targets = w.findAll('.handle').filter(h => h.attributes('data-type') === 'target')
     expect(targets.length).toBe(4)
   })
+
+  it('renders two default source handles for decision', async () => {
+    const w = await mountGN('decision')
+    await flushPromises()
+    const sources = w.findAll('.handle').filter(h => h.attributes('data-type') === 'source')
+    expect(sources.map(h => h.attributes('data-id'))).toEqual(['out_1', 'out_2'])
+  })
+
+  it('renders decision source handles from configured conditions', async () => {
+    const w = await mountGN('decision', {
+      conditions: JSON.stringify([
+        { handle: 'low', name: 'Low' },
+        { handle: 'ok', name: 'OK' },
+        { handle: 'high', name: 'High' },
+      ]),
+    })
+    await flushPromises()
+    const sources = w.findAll('.handle').filter(h => h.attributes('data-type') === 'source')
+    expect(sources.map(h => h.attributes('data-id'))).toEqual(['low', 'ok', 'high'])
+    expect(w.text()).toContain('Low')
+    expect(w.text()).toContain('High')
+  })
 })
 
 describe('GenericNode — summary', () => {
@@ -96,6 +118,31 @@ describe('GenericNode — summary', () => {
     const w = await mountGN('timer_delay', { delay_s: 5 })
     await flushPromises()
     expect(w.find('.gn-summary').text()).toContain('5')
+  })
+
+  it('shows decision rule count summary', async () => {
+    const w = await mountGN('decision', {
+      conditions: JSON.stringify([
+        { handle: 'a', name: 'A' },
+        { handle: 'b', name: 'B' },
+        { handle: 'c', name: 'C' },
+      ]),
+    })
+    await flushPromises()
+    expect(w.find('.gn-summary').text()).toContain('3 Regeln')
+  })
+
+  it('shows mapping output type and rule count summary', async () => {
+    const w = await mountGN('value_mapping', {
+      output_type: 'int',
+      rules: JSON.stringify([
+        { name: 'A' },
+        { name: 'B' },
+      ]),
+    })
+    await flushPromises()
+    expect(w.find('.gn-summary').text()).toContain('int')
+    expect(w.find('.gn-summary').text()).toContain('2 Regeln')
   })
 })
 

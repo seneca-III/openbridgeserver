@@ -1,0 +1,168 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+
+beforeEach(() => {
+  vi.resetModules()
+  vi.doMock('@/api/client', () => ({
+    dpApi:       { list: vi.fn().mockResolvedValue({ data: { items: [] } }) },
+    searchApi:   { search: vi.fn().mockResolvedValue({ data: { items: [] } }) },
+    securityApi: { checkUrlTarget: vi.fn(), addUrlTarget: vi.fn() },
+    authApi:     { login: vi.fn(), me: vi.fn() },
+  }))
+})
+
+afterEach(() => { vi.doUnmock('@/api/client') })
+
+async function mountPanel(type, data = {}) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const { useAuthStore } = await import('@/stores/auth')
+  useAuthStore().user = { id: 'u1', username: 'admin', is_admin: true }
+  const mod = await import('@/components/logic/NodeConfigPanel.vue')
+  return mount(mod.default, {
+    props: {
+      node: { id: 'n1', type, data },
+      nodeTypes: [{ type, label: type, description: '' }],
+      nodeOutputs: {},
+    },
+    global: { plugins: [pinia] },
+    attachTo: document.body,
+  })
+}
+
+function lastUpdate(wrapper) {
+  return wrapper.emitted('update').at(-1)[0]
+}
+
+describe('NodeConfigPanel decision', () => {
+  it('renders two default condition rows when no conditions are stored', async () => {
+    const w = await mountPanel('decision', {})
+    await flushPromises()
+
+    expect(w.findAll('[data-testid^="rule-row-"]')).toHaveLength(2)
+    const rows = w.findAll('[data-testid^="rule-row-"]')
+    expect(rows[0].find('input').element.value).toBe('Ausgang 1')
+    expect(rows[1].find('input').element.value).toBe('Ausgang 2')
+    expect(w.findAll('button').find(b => b.text() === '−').attributes('disabled')).toBeDefined()
+    w.unmount()
+  })
+
+  it('adds a condition with the next output handle', async () => {
+    const w = await mountPanel('decision', {})
+    await flushPromises()
+
+    await w.find('[data-testid="rule-add"]').trigger('click')
+    await flushPromises()
+
+    const conditions = JSON.parse(lastUpdate(w).conditions)
+    expect(conditions).toHaveLength(3)
+    expect(conditions[2]).toMatchObject({ handle: 'out_3', name: 'Ausgang 3', operator: 'eq' })
+    w.unmount()
+  })
+
+  it('updates condition name, operator and range bounds', async () => {
+    const w = await mountPanel('decision', {
+      conditions: JSON.stringify([
+        { handle: 'out_1', name: 'Low', operator: 'eq', value: '' },
+        { handle: 'out_2', name: 'High', operator: 'eq', value: '' },
+      ]),
+    })
+    await flushPromises()
+
+    const firstRow = w.find('[data-testid="rule-row-0"]')
+    await firstRow.find('input').setValue('Comfort')
+    await firstRow.find('select').setValue('range')
+    await flushPromises()
+    const rangeInputs = firstRow.findAll('input')
+    await rangeInputs[1].setValue('24')
+    await rangeInputs[2].setValue('20')
+    await flushPromises()
+
+    const conditions = JSON.parse(lastUpdate(w).conditions)
+    expect(conditions[0]).toMatchObject({ name: 'Comfort', operator: 'range', min: '20', max: '24' })
+    w.unmount()
+  })
+
+  it('removes a condition only when more than two exist and renumbers handles', async () => {
+    const w = await mountPanel('decision', {
+      conditions: JSON.stringify([
+        { handle: 'out_1', name: 'A', operator: 'eq', value: 'a' },
+        { handle: 'out_2', name: 'B', operator: 'eq', value: 'b' },
+        { handle: 'out_3', name: 'C', operator: 'eq', value: 'c' },
+      ]),
+    })
+    await flushPromises()
+
+    await w.find('[data-testid="rule-row-1"]').findAll('button').at(-1).trigger('click')
+    await flushPromises()
+
+    const conditions = JSON.parse(lastUpdate(w).conditions)
+    expect(conditions).toHaveLength(2)
+    expect(conditions.map(c => c.handle)).toEqual(['out_1', 'out_2'])
+    expect(conditions.map(c => c.name)).toEqual(['A', 'C'])
+    w.unmount()
+  })
+})
+
+describe('NodeConfigPanel value_mapping', () => {
+  it('updates output type and rule result', async () => {
+    const w = await mountPanel('value_mapping', {
+      output_type: 'string',
+      rules: JSON.stringify([
+        { name: 'R1', operator: 'eq', value: 'on', result: '1' },
+        { name: 'R2', operator: 'eq', value: 'off', result: '0' },
+      ]),
+    })
+    await flushPromises()
+
+    await w.find('[data-testid="mapping-output-type"]').setValue('int')
+    await w.find('[data-testid="rule-row-0"]').find('[data-testid="mapping-result"]').setValue('42')
+    await flushPromises()
+
+    const update = lastUpdate(w)
+    expect(update.output_type).toBe('int')
+    expect(JSON.parse(update.rules)[0].result).toBe('42')
+    w.unmount()
+  })
+
+  it('toggles and edits the default value', async () => {
+    const w = await mountPanel('value_mapping', {
+      rules: JSON.stringify([
+        { name: 'R1', operator: 'eq', value: 'a', result: 'A' },
+        { name: 'R2', operator: 'eq', value: 'b', result: 'B' },
+      ]),
+      has_default: false,
+    })
+    await flushPromises()
+
+    await w.find('[data-testid="mapping-has-default"]').setValue(true)
+    await flushPromises()
+    await w.find('[data-testid="mapping-default"]').setValue('fallback')
+    await w.find('[data-testid="mapping-default"]').trigger('change')
+    await flushPromises()
+
+    const update = lastUpdate(w)
+    expect(update.has_default).toBe(true)
+    expect(update.default_value).toBe('fallback')
+    w.unmount()
+  })
+
+  it('shows case sensitivity for text operators and persists the flag', async () => {
+    const w = await mountPanel('value_mapping', {
+      rules: JSON.stringify([
+        { name: 'R1', operator: 'contains', value: 'open', result: 'yes' },
+        { name: 'R2', operator: 'eq', value: 'closed', result: 'no' },
+      ]),
+    })
+    await flushPromises()
+
+    const checkbox = w.find('[data-testid="rule-row-0"] input[type="checkbox"]')
+    expect(checkbox.exists()).toBe(true)
+    await checkbox.setValue(true)
+    await flushPromises()
+
+    expect(JSON.parse(lastUpdate(w).rules)[0].case_sensitive).toBe(true)
+    w.unmount()
+  })
+})
