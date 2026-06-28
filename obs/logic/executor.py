@@ -62,17 +62,18 @@ class GraphExecutor:
         self.hysteresis_state = hysteresis_state if hysteresis_state is not None else {}
         self.app_config = app_config or {}
 
-    def execute(self, input_overrides: dict[str, dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
+    def execute(
+        self,
+        input_overrides: dict[str, dict[str, Any]] | None = None,
+        *,
+        commit_memory: bool = True,
+    ) -> dict[str, dict[str, Any]]:
         """Run the graph. Returns output values for every node."""
         input_overrides = input_overrides or {}
 
         # Build adjacency: edge target_node.handle ← source_node.handle value
         # edge_map[target_node_id][target_handle] = (source_node_id, source_handle)
-        edge_map: dict[str, dict[str, tuple[str, str]]] = {}
-        for edge in self.flow.edges:
-            src_handle = edge.sourceHandle or "out"
-            tgt_handle = edge.targetHandle or "in"
-            edge_map.setdefault(edge.target, {})[tgt_handle] = (edge.source, src_handle)
+        edge_map = self._build_edge_map()
 
         # Topological sort (Kahn's algorithm). Nodes left behind by the sort
         # are not executable in this single-pass DAG executor, so surface them
@@ -126,13 +127,29 @@ class GraphExecutor:
                         "__cycle_nodes__": ordered_cyclic,
                     }
 
-        self._commit_memory_inputs(outputs, input_overrides, edge_map)
+        if commit_memory:
+            self._commit_memory_inputs(outputs, input_overrides, edge_map)
         return outputs
 
     # ── Topological Sort ──────────────────────────────────────────────────
 
     def _topo_sort(self):
         return analyze_topology(self.flow)
+
+    def _build_edge_map(self) -> dict[str, dict[str, tuple[str, str]]]:
+        edge_map: dict[str, dict[str, tuple[str, str]]] = {}
+        for edge in self.flow.edges:
+            src_handle = edge.sourceHandle or "out"
+            tgt_handle = edge.targetHandle or "in"
+            edge_map.setdefault(edge.target, {})[tgt_handle] = (edge.source, src_handle)
+        return edge_map
+
+    def commit_memory_inputs(
+        self,
+        outputs: dict[str, dict[str, Any]],
+        input_overrides: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
+        self._commit_memory_inputs(outputs, input_overrides or {}, self._build_edge_map())
 
     def _commit_memory_inputs(
         self,
@@ -143,19 +160,34 @@ class GraphExecutor:
         for node in self.flow.nodes:
             if node.type != "memory":
                 continue
-            if self._to_bool(input_overrides.get(node.id, {}).get("reset")):
+            node_overrides = input_overrides.get(node.id, {})
+            has_reset, reset_value = self._memory_input_value(node, "reset", outputs, node_overrides, edge_map)
+            if has_reset and self._to_bool(reset_value):
                 self._set_memory_value(node, self._memory_initial_value(node))
                 continue
-            if "in" in input_overrides.get(node.id, {}):
-                self._set_memory_value(node, self._coerce_memory_value(node, input_overrides[node.id]["in"]))
+            has_input, input_value = self._memory_input_value(node, "in", outputs, node_overrides, edge_map)
+            if has_input:
+                self._set_memory_value(node, self._coerce_memory_value(node, input_value))
                 continue
-            src = edge_map.get(node.id, {}).get("in")
-            if src is None:
-                continue
-            src_id, src_handle = src
-            if src_id not in outputs:
-                continue
-            self._set_memory_value(node, self._coerce_memory_value(node, self._get_output_value(outputs[src_id], src_handle)))
+
+    def _memory_input_value(
+        self,
+        node: LogicNode,
+        handle: str,
+        outputs: dict[str, dict[str, Any]],
+        node_overrides: dict[str, Any],
+        edge_map: dict[str, dict[str, tuple[str, str]]],
+    ) -> tuple[bool, Any]:
+        if handle in node_overrides:
+            return True, node_overrides[handle]
+        src = edge_map.get(node.id, {}).get(handle)
+        if src is None:
+            return False, None
+        src_id, src_handle = src
+        src_outputs = outputs.get(src_id)
+        if not isinstance(src_outputs, dict) or "__diagnostic__" in src_outputs:
+            return False, None
+        return self._try_get_output_value(src_outputs, src_handle)
 
     # ── Type coercion helpers ─────────────────────────────────────────────
 
@@ -169,6 +201,16 @@ class GraphExecutor:
         if handle == "out" and "result" in outputs:
             return outputs.get("result")
         return None
+
+    @classmethod
+    def _try_get_output_value(cls, outputs: dict[str, Any], handle: str) -> tuple[bool, Any]:
+        if handle in outputs:
+            return True, outputs.get(handle)
+        if handle == "result" and "out" in outputs:
+            return True, outputs.get("out")
+        if handle == "out" and "result" in outputs:
+            return True, outputs.get("result")
+        return False, None
 
     @staticmethod
     def _to_num(v: Any, default: float = 0.0) -> float:

@@ -554,6 +554,64 @@ describe('LogicView graph cycle validation', () => {
     expect(wrapper.vm.edges).toHaveLength(2)
     expect(wrapper.vm.validationWarnings).toEqual([])
   })
+
+  it('blocks saving graphs with direct cycles and marks the nodes', async () => {
+    const graph = makeGraph('graph-1', {
+      flow_data: {
+        nodes: [
+          { id: 'a', type: 'not', position: { x: 0, y: 0 }, data: {} },
+          { id: 'b', type: 'not', position: { x: 160, y: 0 }, data: {} },
+        ],
+        edges: [
+          { id: 'a-b', source: 'a', target: 'b', sourceHandle: 'out', targetHandle: 'in1' },
+          { id: 'b-a', source: 'b', target: 'a', sourceHandle: 'out', targetHandle: 'in1' },
+        ],
+      },
+    })
+    const { wrapper, logicApi } = await mountLogicView({
+      isAdmin: true,
+      graphs: [graph],
+      routeQuery: { graph: 'graph-1' },
+      graphDetails: { 'graph-1': graph },
+    })
+
+    await wrapper.vm.saveGraph()
+
+    expect(logicApi.saveGraph).not.toHaveBeenCalled()
+    expect(wrapper.vm.statusMsg.ok).toBe(false)
+    expect(wrapper.vm.validationWarnings).toHaveLength(2)
+    expect(wrapper.vm.nodes.map(n => n.data._dbg)).toEqual([
+      expect.stringContaining('Zyklus'),
+      expect.stringContaining('Zyklus'),
+    ])
+  })
+
+  it('uses API warning counts from runGraph responses', async () => {
+    const graph = makeGraph('graph-1')
+    const { wrapper, logicApi } = await mountLogicView({
+      isAdmin: true,
+      graphs: [graph],
+      routeQuery: { graph: 'graph-1' },
+      graphDetails: { 'graph-1': graph },
+    })
+    logicApi.runGraph.mockResolvedValueOnce({
+      data: {
+        outputs: {
+          n1: {
+            __error__: 'Graph cycle detected; node was not executed.',
+            __diagnostic__: 'graph_cycle',
+          },
+        },
+        warnings: [{ node_id: 'n1', code: 'graph_cycle', message: 'cycle' }],
+      },
+    })
+
+    await wrapper.vm.runGraph()
+
+    expect(wrapper.vm.statusMsg.ok).toBe(false)
+    expect(wrapper.vm.statusMsg.text).toContain('Warnungen')
+    expect(wrapper.vm.nodes[0].data._dbg).toContain('Graph cycle detected')
+  })
 })
 
 describe('LogicView operation error handling', () => {
