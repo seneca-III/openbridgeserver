@@ -15,6 +15,7 @@ from datetime import date as _date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from obs.logic.graph_analysis import analyze_topology
 from obs.logic.models import FlowData, LogicNode
 
 logger = logging.getLogger(__name__)
@@ -73,13 +74,15 @@ class GraphExecutor:
             tgt_handle = edge.targetHandle or "in"
             edge_map.setdefault(edge.target, {})[tgt_handle] = (edge.source, src_handle)
 
-        # Topological sort (Kahn's algorithm)
-        order = self._topo_sort()
+        # Topological sort (Kahn's algorithm). Nodes left behind by the sort
+        # are not executable in this single-pass DAG executor, so surface them
+        # explicitly instead of silently dropping them from the result.
+        topo = self._topo_sort()
 
         # Evaluate
         outputs: dict[str, dict[str, Any]] = {}
 
-        for node in order:
+        for node in topo.order:
             # Resolve inputs for this node
             inputs: dict[str, Any] = {}
             for handle, (src_id, src_handle) in edge_map.get(node.id, {}).items():
@@ -98,33 +101,61 @@ class GraphExecutor:
 
             outputs[node.id] = result
 
+        if topo.skipped_node_ids:
+            ordered_cyclic = [n.id for n in self.flow.nodes if n.id in topo.cyclic_node_ids]
+            ordered_blocked = [n.id for n in self.flow.nodes if n.id in topo.blocked_node_ids]
+            logger.warning(
+                "Logic graph contains cycle(s); cyclic nodes=%s, blocked nodes=%s",
+                ordered_cyclic,
+                ordered_blocked,
+            )
+            cycle_summary = ", ".join(ordered_cyclic[:5])
+            if len(ordered_cyclic) > 5:
+                cycle_summary = f"{cycle_summary}, ..."
+            for node in self.flow.nodes:
+                if node.id in topo.cyclic_node_ids:
+                    outputs[node.id] = {
+                        "__error__": f"Graph cycle detected; node was not executed. Cycle nodes: {cycle_summary}",
+                        "__diagnostic__": "graph_cycle",
+                        "__cycle_nodes__": ordered_cyclic,
+                    }
+                elif node.id in topo.blocked_node_ids:
+                    outputs[node.id] = {
+                        "__error__": f"Graph cycle detected upstream; node was not executed. Cycle nodes: {cycle_summary}",
+                        "__diagnostic__": "graph_cycle_blocked",
+                        "__cycle_nodes__": ordered_cyclic,
+                    }
+
+        self._commit_memory_inputs(outputs, input_overrides, edge_map)
         return outputs
 
     # ── Topological Sort ──────────────────────────────────────────────────
 
-    def _topo_sort(self) -> list[LogicNode]:
-        node_map = {n.id: n for n in self.flow.nodes}
-        in_degree: dict[str, int] = {n.id: 0 for n in self.flow.nodes}
-        adj: dict[str, list[str]] = {n.id: [] for n in self.flow.nodes}
+    def _topo_sort(self):
+        return analyze_topology(self.flow)
 
-        for edge in self.flow.edges:
-            if edge.source in adj and edge.target in in_degree:
-                adj[edge.source].append(edge.target)
-                in_degree[edge.target] += 1
-
-        queue = [nid for nid, deg in in_degree.items() if deg == 0]
-        order: list[LogicNode] = []
-
-        while queue:
-            nid = queue.pop(0)
-            if nid in node_map:
-                order.append(node_map[nid])
-            for neighbor in adj.get(nid, []):
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    queue.append(neighbor)
-
-        return order
+    def _commit_memory_inputs(
+        self,
+        outputs: dict[str, dict[str, Any]],
+        input_overrides: dict[str, dict[str, Any]],
+        edge_map: dict[str, dict[str, tuple[str, str]]],
+    ) -> None:
+        for node in self.flow.nodes:
+            if node.type != "memory":
+                continue
+            if self._to_bool(input_overrides.get(node.id, {}).get("reset")):
+                self._set_memory_value(node, self._memory_initial_value(node))
+                continue
+            if "in" in input_overrides.get(node.id, {}):
+                self._set_memory_value(node, self._coerce_memory_value(node, input_overrides[node.id]["in"]))
+                continue
+            src = edge_map.get(node.id, {}).get("in")
+            if src is None:
+                continue
+            src_id, src_handle = src
+            if src_id not in outputs:
+                continue
+            self._set_memory_value(node, self._coerce_memory_value(node, self._get_output_value(outputs[src_id], src_handle)))
 
     # ── Type coercion helpers ─────────────────────────────────────────────
 
@@ -169,6 +200,30 @@ class GraphExecutor:
         if isinstance(v, str):
             return v.strip().lower() not in ("0", "false", "no", "off", "")
         return bool(v)
+
+    def _memory_initial_value(self, node: LogicNode) -> Any:
+        return self._coerce_memory_value(node, node.data.get("initial_value"))
+
+    def _memory_value(self, node: LogicNode) -> Any:
+        state = self.hysteresis_state.get(node.id)
+        if isinstance(state, dict) and "value" in state:
+            return state["value"]
+        if state is not None and not isinstance(state, dict):
+            return state
+        return self._memory_initial_value(node)
+
+    def _set_memory_value(self, node: LogicNode, value: Any) -> None:
+        self.hysteresis_state[node.id] = {"value": value}
+
+    def _coerce_memory_value(self, node: LogicNode, value: Any) -> Any:
+        dtype = node.data.get("data_type", "auto")
+        if dtype == "bool":
+            return self._to_bool(value)
+        if dtype == "number":
+            return self._to_num(value)
+        if dtype == "string":
+            return "" if value is None else str(value)
+        return value
 
     # ── Node Evaluators ───────────────────────────────────────────────────
 
@@ -226,6 +281,9 @@ class GraphExecutor:
                 except (TypeError, ValueError):
                     out_val = str(raw) if raw is not None else None
                 return {"out": out_val}
+
+            case "memory":
+                return {"out": self._memory_value(node)}
 
             case "compare":
                 operator_key = str(d.get("operator", ">")).strip().lower()

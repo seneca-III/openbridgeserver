@@ -302,6 +302,7 @@ export const navLinksApi = {
 // ── Logic Engine ──────────────────────────────────────────────────────────
 export const logicApi = {
   nodeTypes:        ()           => api.get('/logic/node-types'),
+  validateGraph:    (flowData)   => api.post('/logic/graphs/validate', flowData),
   listGraphs:       ()           => api.get('/logic/graphs'),
   createGraph:      (data)       => api.post('/logic/graphs', data),
   importGraph:      (data)       => api.post('/logic/graphs/import', data),
