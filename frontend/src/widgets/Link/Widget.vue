@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import type { DataPointValue } from '@/types'
+import type { AccessLevel, DataPointValue, VisuNode } from '@/types'
 import VisuIcon from '@/components/VisuIcon.vue'
 import { useVisuStore } from '@/stores/visu'
 
@@ -31,6 +31,21 @@ const labelSize = computed(() => {
 
 const activeIndicator = computed(() => (props.config.active_indicator as string | undefined) ?? 'none')
 
+function resolveAccessNode(node: VisuNode): { access: AccessLevel; definingId: string } {
+  let cur: VisuNode | undefined = node
+  while (cur) {
+    if (cur.access !== null) return { access: cur.access, definingId: cur.id }
+    cur = cur.parent_id ? store.getNode(cur.parent_id) : undefined
+  }
+  return { access: 'public', definingId: node.id }
+}
+
+function isVisibleInLocationOverview(node: VisuNode): boolean {
+  const { access } = resolveAccessNode(node)
+  if (access === 'user') return store.isLoggedIn
+  return true
+}
+
 // Active if targetId is the current page OR any ancestor of the current page in the visu tree
 const isActive = computed(() => {
   if (props.editorMode || !targetId.value) return false
@@ -48,8 +63,15 @@ function navigate() {
   if (props.editorMode || !targetId.value) return
   const target = store.getNode(targetId.value)
   if (target?.type === 'LOCATION') {
-    // Navigate to first child page of the location
-    const firstPage = store.nodes.find(n => n.parent_id === targetId.value && n.type === 'PAGE')
+    const targetAccess = resolveAccessNode(target)
+    if (targetAccess.access === 'protected' && !store.hasSessionToken(targetAccess.definingId)) {
+      router.push({ name: 'viewer', params: { id: targetId.value } })
+      return
+    }
+
+    // Navigate to the first direct page that would also be visible in the location overview.
+    const firstPage = store.getChildren(targetId.value)
+      .find(n => n.type === 'PAGE' && isVisibleInLocationOverview(n))
     if (firstPage) {
       router.push({ name: 'viewer', params: { id: firstPage.id } })
       return
