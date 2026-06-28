@@ -226,7 +226,11 @@ const coloredSvg = computed(() => {
     :class="[editorMode || readonly ? 'opacity-60 cursor-default' : 'cursor-pointer']"
     @click="toggle"
   >
-    <span v-if="label" class="text-xs text-gray-500 dark:text-gray-400 truncate w-full text-center shrink-0 mb-1">{{ label }}</span>
+    <span
+      v-if="label"
+      class="text-gray-500 dark:text-gray-400 truncate w-full text-center shrink-0 mb-1"
+      :class="labelSize"
+    >{{ label }}</span>
 
     <!-- Abstandhalter oben: zentriert das Icon vertikal -->
     <div style="flex: 1" />
@@ -264,7 +268,11 @@ const coloredSvg = computed(() => {
     :class="[editorMode || readonly ? 'opacity-60 cursor-default' : 'cursor-pointer']"
     @click="toggle"
   >
-    <span v-if="label" class="text-xs text-gray-500 dark:text-gray-400 truncate w-full text-center shrink-0 mb-1">{{ label }}</span>
+    <span
+      v-if="label"
+      class="text-gray-500 dark:text-gray-400 truncate w-full text-center shrink-0 mb-1"
+      :class="labelSize"
+    >{{ label }}</span>
 
     <!-- Icon: 3 flex-Anteile -->
     <div
