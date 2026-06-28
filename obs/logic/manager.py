@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import socket
 import stat
 import uuid
 from datetime import UTC, datetime
@@ -524,6 +525,18 @@ def _should_send_cookie(
     if bool(cookie_secure) and not req_is_https:
         return False
     return True
+
+
+def _send_wol_packet(mac: str, broadcast: str, port: int) -> None:
+    """Build and send a Wake-on-LAN magic packet via UDP broadcast."""
+    clean = re.sub(r"[:\-\.]", "", mac).upper()
+    if len(clean) != 12 or not re.fullmatch(r"[0-9A-F]{12}", clean):
+        raise ValueError(f"Invalid MAC address: {mac!r}")
+    mac_bytes = bytes.fromhex(clean)
+    magic = b"\xff" * 6 + mac_bytes * 16
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(magic, (broadcast, port))
 
 
 def _build_ical_fetch_targets(url: str) -> tuple[list[str], dict[str, str], dict[str, str]]:
@@ -1184,6 +1197,113 @@ class LogicManager:
                 ns["accumulated_hours"] += (execute_now - ns["last_start"]).total_seconds() / 3600
                 ns["last_start"] = None
 
+        # ── Handle wake_on_lan ────────────────────────────────────────────
+        # Runs BEFORE api_client/notify so that graphs with wol.sent →
+        # api_client or wol.sent → notify fire correctly in the same execution.
+        # Rising-edge: packet is sent only on the False→True transition of
+        # _trigger, preventing repeated broadcasts on sustained truthy inputs.
+        # Exception: cron-triggered executions are always treated as a fresh
+        # rising edge, since each cron tick is an independent scheduled event.
+        cron_node_ids = {n.id for n in flow.nodes if n.type == "timer_cron"}
+        # Forward-reachability from the cron nodes that actually fired this
+        # execution.  Used below to scope the cron-retrigger exception to WoL
+        # nodes that are driven by the firing cron, not every cron in the graph.
+        fired_crons = overrides.keys() & cron_node_ids
+        cron_reachable: set[str] = set(fired_crons)
+        if fired_crons:
+            _cq: list[str] = list(fired_crons)
+            while _cq:
+                _cn = _cq.pop()
+                for _ce in flow.edges:
+                    if _ce.source == _cn and _ce.target not in cron_reachable:
+                        cron_reachable.add(_ce.target)
+                        _cq.append(_ce.target)
+        triggered_wol_nodes: set[str] = set()
+        for node in flow.nodes:
+            if node.type != "wake_on_lan":
+                continue
+            out = outputs.get(node.id, {})
+            hyst_wol = hyst.setdefault(node.id, {})
+            is_triggered = GraphExecutor._to_bool(out.get("_trigger"))
+            was_triggered = hyst_wol.get("wol_prev_trigger", False)
+            # Cron-retrigger exception applies only when the firing cron node
+            # actually drives this specific WoL node (reachability check above).
+            is_cron_triggered = node.id in cron_reachable
+            if not is_triggered:
+                hyst_wol["wol_prev_trigger"] = False
+                continue
+            if was_triggered and not is_cron_triggered:
+                continue
+            mac = (node.data.get("mac_address") or "").strip()
+            if not mac:
+                logger.warning("wake_on_lan: mac_address missing on node %s", node.id[:8])
+                continue
+            broadcast = (node.data.get("broadcast_ip") or "").strip() or "255.255.255.255"
+            _port_raw = node.data.get("port")
+            try:
+                if isinstance(_port_raw, float) and not _port_raw.is_integer():
+                    raise ValueError(f"fractional port {_port_raw!r} — must be a whole number")
+                port = int(_port_raw) if _port_raw not in (None, "") else 9
+                if not (1 <= port <= 65535):
+                    raise ValueError(f"port {port!r} out of range 1–65535")
+                try:
+                    ipaddress.IPv4Address(broadcast)
+                except ValueError:
+                    raise ValueError(f"invalid broadcast IP {broadcast!r}") from None
+                await asyncio.to_thread(_send_wol_packet, mac, broadcast, port)
+                # Record the consumed rising edge only after a successful send so
+                # that a transient failure does not silently suppress the next attempt.
+                hyst_wol["wol_prev_trigger"] = True
+                outputs[node.id]["sent"] = True
+                triggered_wol_nodes.add(node.id)
+                mac_oui = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "??:??:??:??:??:??"
+                logger.info("Graph %s: WoL sent to %s via %s:%d", graph_id[:8], mac_oui, broadcast, port)
+            except Exception as exc:
+                mac_oui = ":".join(mac.upper().split(":")[:3]) + ":??:??:??" if ":" in mac else "??:??:??:??:??:??"
+                logger.warning("Graph %s: WoL failed (mac=%s): %s", graph_id[:8], mac_oui, exc)
+
+        # ── Re-propagate wake_on_lan sent=True to downstream nodes ───────────
+        # The first executor pass computed downstream nodes with sent=False.
+        # Re-run only the transitive downstream subgraph with the real sent
+        # value injected as an input override.
+        # Full aug_overrides (dp-read seeds + cron/event overrides from the
+        # call site) are carried into the second pass so that downstream nodes
+        # which also read from a cron pulse or a datapoint see correct values.
+        # Only transitively downstream nodes are updated from the second pass
+        # so that unrelated nodes (e.g. an api_client with its own trigger)
+        # keep their first-pass results.
+        if triggered_wol_nodes:
+            wol_downstream_overrides: dict[str, dict[str, Any]] = {}
+            for e in flow.edges:
+                if e.source in triggered_wol_nodes:
+                    src_handle = e.sourceHandle or "out"
+                    tgt_handle = e.targetHandle or "in"
+                    wol_downstream_overrides.setdefault(e.target, {})[tgt_handle] = GraphExecutor._get_output_value(outputs[e.source], src_handle)
+            if wol_downstream_overrides:
+                wol_merged: dict[str, dict[str, Any]] = {nid: dict(vals) for nid, vals in aug_overrides.items()}
+                for nid, vals in wol_downstream_overrides.items():
+                    wol_merged.setdefault(nid, {}).update(vals)
+                # Use a deep copy of hyst so that stateful nodes (statistics,
+                # avg_multi, …) don't accumulate a second sample just because
+                # a WoL edge is present — we only want their *outputs*, not
+                # a second mutation of their persisted state.
+                wol_second_executor = GraphExecutor(flow, copy.deepcopy(hyst), self._app_config)
+                wol_second_outputs = wol_second_executor.execute(wol_merged)
+                # Compute transitive closure of WoL-triggered nodes so that only
+                # their descendants are updated, leaving unrelated nodes intact.
+                wol_descendants: set[str] = set()
+                queue = list(triggered_wol_nodes)
+                while queue:
+                    nid = queue.pop()
+                    for e in flow.edges:
+                        if e.source == nid and e.target not in wol_descendants:
+                            wol_descendants.add(e.target)
+                            queue.append(e.target)
+                wol_node_ids = {n.id for n in flow.nodes if n.type == "wake_on_lan"}
+                for nid, vals in wol_second_outputs.items():
+                    if nid not in wol_node_ids and nid in wol_descendants:
+                        outputs[nid] = vals
+
         # ── Handle api_client ─────────────────────────────────────────────
         # Track api_client nodes with final manager-computed outputs so we can
         # re-propagate success responses and explicit error details downstream.
@@ -1403,8 +1523,20 @@ class LogicManager:
                     replay_hyst = copy.deepcopy(pre_execute_hyst)
                     second_executor = GraphExecutor(flow, replay_hyst, self._app_config)
                     second_outputs = second_executor.execute(replay_overrides)
+                    # Compute transitive descendants of triggered api_clients so that
+                    # only their subtree is updated. This prevents the api_client
+                    # second pass from overwriting WoL-propagated outputs that were
+                    # already written to outputs[] by the WoL second pass above.
+                    api_descendants: set[str] = set()
+                    _aq: list[str] = list(triggered_api_clients)
+                    while _aq:
+                        _an = _aq.pop()
+                        for _ae in flow.edges:
+                            if _ae.source == _an and _ae.target not in api_descendants:
+                                api_descendants.add(_ae.target)
+                                _aq.append(_ae.target)
                     for nid, vals in second_outputs.items():
-                        if nid in downstream_node_ids and nid not in api_client_ids:
+                        if nid not in api_client_ids and nid in api_descendants:
                             outputs[nid] = vals
                             if nid in replay_hyst:
                                 hyst[nid] = replay_hyst[nid]

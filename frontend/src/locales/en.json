@@ -508,6 +508,8 @@
       "unitOverride": "Unit (overrides object unit)",
       "decimals": "Decimal places",
       "additionalValues": "Additional values (max. {max})",
+      "mainLabelPlaceholder": "e.g. flow temperature",
+      "unitPlaceholder": "e.g. °C",
       "valueN": "Value {n}",
       "placeholderLabel": "Label",
       "placeholderUnit": "Unit",
@@ -576,6 +578,7 @@
       "labelPlaceholder": "e.g. Living room",
       "noTarget": "No target",
       "showIcon": "Show icon",
+      "preserveIconColor": "Preserve SVG icon color (no black/white)",
       "targetPage": "Target page",
       "title": "Link"
     },
@@ -757,7 +760,8 @@
       "sent": "Sent",
       "error": "Error",
       "empty": "No buttons configured.",
-      "noDatapoint": "No linked object."
+      "noDatapoint": "No linked object.",
+      "preserveIconColor": "Preserve SVG icon color (no black/white)"
     },
     "uhr": {
       "title": "Clock",

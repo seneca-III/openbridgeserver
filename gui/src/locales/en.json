@@ -1272,6 +1272,7 @@
       "astro_sun": "Astro Sun",
       "notify_pushover": "Pushover",
       "notify_sms": "SMS (seven.io)",
+      "wake_on_lan": "Wake on LAN",
       "json_extractor": "JSON Extractor",
       "xml_extractor": "XML Extractor",
       "substring_extractor": "Substring / RegEx",
@@ -1738,6 +1739,14 @@
         "sender": "Sender (max 11 chars)",
         "message": "Message (fallback)"
       },
+      "wake_on_lan": {
+        "mac_address": "MAC address (e.g. AA:BB:CC:DD:EE:FF)",
+        "broadcast_ip": "Broadcast IP",
+        "port": "UDP port",
+        "invalidMac": "Invalid MAC address – please use the format AA:BB:CC:DD:EE:FF",
+        "invalidBroadcastIp": "Invalid IP address – please enter a valid IPv4 address",
+        "invalidPort": "Invalid port – please enter a number between 1 and 65535"
+      },
       "json_extractor": {
         "json_path": "Key path (legacy)",
         "json_paths": "Outputs (JSON array)"
@@ -1858,6 +1867,7 @@
       "astro_sun": "Calculates sunrise and sunset based on latitude/longitude. Requires: pip install astral",
       "notify_pushover": "Sends a push notification via the Pushover API (api.pushover.net). Triggered automatically when a message arrives at the input.",
       "notify_sms": "Sends an SMS via the seven.io gateway (gateway.seven.io). Triggered automatically when a message arrives at the input.",
+      "wake_on_lan": "Sends a Wake-on-LAN magic packet to a device via UDP broadcast. Triggered when the trigger input is true.",
       "json_extractor": "Parses a JSON string and extracts one or more values by key paths (dot notation, e.g. sensors.temperature). Multiple outputs configurable via + in the config panel.",
       "xml_extractor": "Parses an XML string and extracts one or more values by XPath expressions (ElementTree syntax, e.g. .//temperature). Multiple outputs configurable via + in the config panel.",
       "substring_extractor": "Extracts text from a string using substring operations or regular expressions. Modes: left_of / right_of (first or last occurrence), between (two markers), cut (position + length), regex (Python re syntax, capture groups selectable).",
@@ -2316,6 +2326,7 @@
     "success": "Success",
     "details": "Details",
     "remove": "Remove",
+    "enabled": "Enabled",
     "active": "Active",
     "inactive": "Inactive",
     "on": "On",

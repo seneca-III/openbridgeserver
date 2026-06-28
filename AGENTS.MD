@@ -12,6 +12,17 @@ This file provides guidance to AI coding agents when working with code in this r
 
 **open bridge server** is an open-source multiprotocol building automation server (MIT-licensed replacement for the proprietary Timberwolf Server). It bridges KNX, Modbus RTU/TCP, 1-Wire, MQTT, SNMP, Home Assistant, ioBroker, Anwesenheitssimulation (presence simulation), and Zeitschaltuhr into a unified system with a FastAPI REST/WebSocket API and a Vue-based admin GUI.
 
+## Repository Layout
+
+Two top-level directories have distinct, non-overlapping purposes — keep them that way (see issue #877):
+
+| Directory | Audience | What belongs here |
+|---|---|---|
+| `tools/` | Developers, CI, release pipeline | Dev tooling only — linting, test helpers, LXC builder, worktree helpers, venv resolver, i18n guards, coverage summary, `build-local.sh`. Nothing in `tools/` is installed on a running OBS host. |
+| `scripts/` | Running OBS host | Deployed runtime scripts — every file that gets installed onto a production or LXC host lives here. Currently: `obs-admin` and `obs-update`. |
+
+**Rule of thumb:** if a file is only needed to build, test, or check the project, it goes in `tools/`. If it ends up on the host after installation, it goes in `scripts/`. Never mix the two.
+
 ## Common Commands
 
 ```bash
@@ -85,7 +96,7 @@ Zusätzlich für i18n-Änderungen (Admin GUI + Visu) gilt ein harter Diff-Gate:
 
 ```bash
 # Diff-basierter i18n Hard-Gate (Hardcoded user-facing strings + locale parity)
-./scripts/check-i18n-hardcoded-strings.sh
+./tools/check-i18n-hardcoded-strings.sh
 ```
 
 Für GUI-Änderungen gilt zusätzlich ein weicher Coverage-Nachzieh-Hinweis:
@@ -109,26 +120,25 @@ Danach läuft der i18n-Gate automatisch vor jedem `git push`.
 
 ## Test Coverage Gate (verbindlich)
 
-**Coverage darf durch neuen Code nie sinken.** Jede neue Python-Datei oder -Funktion in `obs/`
-muss mit Tests abgedeckt sein, die die Gesamtabdeckung mindestens auf dem Niveau vor der Änderung
-halten. Konkret:
+**Jede neue Zeile Code muss durch Tests abgedeckt sein.** Codecov prüft die *Patch Coverage* —
+d.h. ob jede im Diff hinzugefügte Zeile durch die Testsuite ausgeführt wird. Das ist strenger als
+nur die Gesamtabdeckung zu halten: eine neue Funktion, die bestehende Zeilen nicht senkt, aber
+selbst ungetestet bleibt, fällt durch dieses Gate.
 
-- **Neuer Code → neue Tests.** Wer eine neue API-Route, einen neuen Adapter oder eine neue
-  Hilfsfunktion hinzufügt, liefert zugehörige Tests (Unit oder Integration) im selben Commit.
-- **Refactorings** dürfen die Coverage nicht senken.
+- **Neuer Code → neue Tests im selben Commit.** Jede neue API-Route, jeder neue Adapter, jede
+  neue Hilfsfunktion braucht zugehörige Tests (Unit oder Integration), die genau die neuen Zeilen
+  ausführen.
+- **Refactorings** dürfen weder die Gesamtabdeckung noch die Patch Coverage senken.
 - **Vor jedem Push mit Backend-Änderungen** Coverage prüfen:
 
 ```bash
-# Baseline messen (vor der Änderung):
-tools/with-venv pytest tests/unit tests/adapters tests/contracts --cov=obs --cov-report=term-missing
-
-# Nach der Änderung nochmals — Gesamtprozentsatz muss ≥ Baseline sein:
+# Gesamtabdeckung (muss ≥ Baseline bleiben):
 tools/with-venv pytest tests/unit tests/adapters tests/contracts --cov=obs --cov-report=term-missing
 # mit Docker auch:
 tools/with-venv pytest tests/integration --cov=obs --cov-append --cov-report=term-missing
 ```
 
-Wenn der Coverage-Prozentsatz gefallen ist: Tests ergänzen, nicht pushen.
+Wenn neue Zeilen im Report unter „Missing" auftauchen: Tests ergänzen, nicht pushen.
 Gilt für Haupt-Sessions **und** für Subagents — bitte explizit in den Subagent-Prompt schreiben.
 
 ## Local Development Setup
@@ -355,16 +365,16 @@ When adding a new view, widget config, or significant UI component:
 
 #### Hard-Gate (local + CI)
 
-`./scripts/check-i18n-hardcoded-strings.sh` runs two gates on the PR/push diff; both must pass.
+`./tools/check-i18n-hardcoded-strings.sh` runs two gates on the PR/push diff; both must pass.
 
-**Frontend** (`scripts/check_i18n_guard.py`):
+**Frontend** (`tools/check_i18n_guard.py`):
 
 1. Changed files under `gui/src` and `frontend/src` with extension `.vue`, `.js`, `.ts` are scanned file-wide for hardcoded user-facing strings outside `$t()` / `t()`.
 2. If locale files changed, `de.json` and `en.json` are compared pairwise (`gui/src/locales/` and `frontend/src/locales/`); missing counterpart keys fail the gate.
 
-Allowlisted technical literals are maintained in `scripts/i18n-allowlist.txt`. Keep the list minimal and reviewable.
+Allowlisted technical literals are maintained in `tools/i18n-allowlist.txt`. Keep the list minimal and reviewable.
 
-**Backend adapter strings** (`scripts/check_adapter_i18n.py`, issue #779): changed files under `obs/adapters/**` and `obs/api/v1/adapters.py` are AST-scanned — any `_publish_status(...)` / `TestResult(...)` call (and the thin wrappers around them) whose `detail` is a non-empty **string literal** must also pass a stable `code=` / `detail_code=`, and every referenced code must exist in both `en.json` and `de.json`. Dynamic fallbacks (f-strings, variables, `str(exc)`) are allowed without a code.
+**Backend adapter strings** (`tools/check_adapter_i18n.py`, issue #779): changed files under `obs/adapters/**` and `obs/api/v1/adapters.py` are AST-scanned — any `_publish_status(...)` / `TestResult(...)` call (and the thin wrappers around them) whose `detail` is a non-empty **string literal** must also pass a stable `code=` / `detail_code=`, and every referenced code must exist in both `en.json` and `de.json`. Dynamic fallbacks (f-strings, variables, `str(exc)`) are allowed without a code.
 
 ##### Backend adapter status / schema strings (issue #779)
 

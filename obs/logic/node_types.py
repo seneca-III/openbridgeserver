@@ -706,6 +706,32 @@ BUILTIN_NODE_TYPES: list[NodeTypeDef] = [
     ),
     # ── Integration ───────────────────────────────────────────────────────
     NodeTypeDef(
+        type="wake_on_lan",
+        label="Wake on LAN",
+        category="integration",
+        description="Sendet ein Wake-on-LAN Magic-Paket an ein Gerät per UDP-Broadcast. Wird ausgelöst wenn der Trigger-Eingang true ist.",
+        inputs=[_port("trigger", "Trigger", "trigger")],
+        outputs=[_port("sent", "Gesendet", "trigger")],
+        config_schema={
+            "mac_address": {
+                "type": "string",
+                "default": "",
+                "label": "MAC-Adresse (z.B. AA:BB:CC:DD:EE:FF)",
+            },
+            "broadcast_ip": {
+                "type": "string",
+                "default": "255.255.255.255",
+                "label": "Broadcast-IP",
+            },
+            "port": {
+                "type": "number",
+                "default": 9,
+                "label": "UDP-Port",
+            },
+        },
+        color="#0369a1",
+    ),
+    NodeTypeDef(
         type="json_extractor",
         label="JSON Extractor",
         category="integration",
