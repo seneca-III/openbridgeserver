@@ -1819,6 +1819,8 @@ class LogicManager:
                 continue
             if await _run_host_check_node(node, post_api_triggered_hc, " (post-api)"):
                 triggered_host_check_nodes.add(node.id)
+        if post_api_triggered_hc:
+            _add_resolved_outputs(post_api_triggered_hc)
 
         post_api_hc_descendants: set[str] = set()
         pending_post_api_hc_replay = set(post_api_triggered_hc)
@@ -1914,6 +1916,7 @@ class LogicManager:
                     logger.warning("Graph %s: WoL failed on node %s: %s", graph_id[:8], node.id[:8], type(exc).__name__)
 
         if post_api_wol_nodes:
+            _add_resolved_outputs(post_api_wol_nodes)
             post_api_wol_overrides: dict[str, dict[str, Any]] = {}
             for e in flow.edges:
                 if e.source in post_api_wol_nodes:
@@ -1927,7 +1930,8 @@ class LogicManager:
                     post_api_wol_merged.setdefault(nid, {}).update(vals)
                 for nid, vals in post_api_wol_overrides.items():
                     post_api_wol_merged.setdefault(nid, {}).update(vals)
-                post_api_wol_executor = GraphExecutor(flow, copy.deepcopy(hyst), self._app_config)
+                _pawol_hyst_snap = copy.deepcopy(hyst)
+                post_api_wol_executor = GraphExecutor(flow, _pawol_hyst_snap, self._app_config)
                 post_api_wol_outputs = post_api_wol_executor.execute(post_api_wol_merged)
                 post_api_wol_descendants: set[str] = set()
                 post_api_wol_queue = list(post_api_wol_nodes)
@@ -1941,6 +1945,8 @@ class LogicManager:
                 for nid, vals in post_api_wol_outputs.items():
                     if nid not in wol_node_ids and nid in post_api_wol_descendants:
                         outputs[nid] = vals
+                        if nid not in host_check_ids and nid in _pawol_hyst_snap:
+                            hyst[nid] = _pawol_hyst_snap[nid]
 
                 # HC nodes driven by post-api WoL output
                 _pawol_hc: set[str] = set()
@@ -2169,6 +2175,7 @@ class LogicManager:
                     triggered_api_clients.add(node.id)
 
         if post_api_hc_api_clients:
+            _add_resolved_outputs(post_api_hc_api_clients)
             api_descendants: set[str] = set()
             pending_sources = list(post_api_hc_api_clients)
             while pending_sources:
@@ -2211,6 +2218,7 @@ class LogicManager:
                         await _run_host_check_node(node, final_api_triggered_hc, " (post-api api replay)")
                 if final_api_triggered_hc:
                     triggered_host_check_nodes.update(final_api_triggered_hc)
+                    _add_resolved_outputs(final_api_triggered_hc)
                     pending_final_api_hc_replay = set(final_api_triggered_hc)
                     processed_final_api_hc_replay: set[str] = set()
                     while pending_final_api_hc_replay:
@@ -2317,12 +2325,14 @@ class LogicManager:
                         outputs[_e.source], _e.sourceHandle or "out"
                     )
             if _fwol_dn_ovr:
-                _fwol_merged: dict[str, dict[str, Any]] = {nid: dict(vals) for nid, vals in aug_overrides.items()}
+                _fwol_base = api_replay_overrides if api_replay_overrides is not None else aug_overrides
+                _fwol_merged: dict[str, dict[str, Any]] = {nid: dict(vals) for nid, vals in _fwol_base.items()}
                 for nid, vals in resolved_async_edge_overrides.items():
                     _fwol_merged.setdefault(nid, {}).update(vals)
                 for nid, vals in _fwol_dn_ovr.items():
                     _fwol_merged.setdefault(nid, {}).update(vals)
-                _fwol_exec = GraphExecutor(flow, copy.deepcopy(hyst), self._app_config)
+                _fwol_hyst_snap = copy.deepcopy(hyst)
+                _fwol_exec = GraphExecutor(flow, _fwol_hyst_snap, self._app_config)
                 _fwol_out = _fwol_exec.execute(_fwol_merged)
                 _fwol_desc: set[str] = set()
                 _fwol_q: list[str] = list(_final_wol_candidates)
@@ -2336,6 +2346,15 @@ class LogicManager:
                 for nid, vals in _fwol_out.items():
                     if nid not in _fwol_wol_ids and nid in _fwol_desc:
                         outputs[nid] = vals
+                        if nid not in host_check_ids and nid in _fwol_hyst_snap:
+                            hyst[nid] = _fwol_hyst_snap[nid]
+                _fwol_hc: set[str] = set()
+                for node in flow.nodes:
+                    if node.type == "host_check" and node.id in _fwol_desc and node.id not in triggered_host_check_nodes:
+                        await _run_host_check_node(node, _fwol_hc, " (final-wol)")
+                if _fwol_hc:
+                    triggered_host_check_nodes.update(_fwol_hc)
+                    _add_resolved_outputs(_fwol_hc)
 
         # ── Handle notify_pushover ────────────────────────────────────────
         # Runs AFTER api_client second-pass so that graphs with api_client →

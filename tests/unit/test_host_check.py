@@ -2103,3 +2103,89 @@ class TestFinalWolDownstream:
 
         assert outputs["wol"]["sent"] is True
         assert outputs["gate"]["out"] is True
+
+
+# ===========================================================================
+# Final WoL replay hyst copy-back and HC downstream run (lines 2350, 2354-2357)
+# ===========================================================================
+
+
+class TestFinalWolReplayExtended:
+    def test_final_wol_replay_hyst_copy_back(self):
+        """cv→ac1→hc1→ac2→wol→stats: final WoL replay copies stateful node hyst back (line 2350)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac1", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc1", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("ac2", "api_client", {"url": "http://93.184.216.34/two", "method": "GET"}),
+            node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"}),
+            node("stats", "statistics", {}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac1", "value", "trigger"),
+                edge("ac1", "hc1", "success", "trigger"),
+                edge("hc1", "ac2", "reachable", "trigger"),
+                edge("ac2", "wol", "success", "trigger"),
+                edge("wol", "stats", "sent", "value"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-final-wol-hyst"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock):
+                        outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        assert outputs["wol"]["sent"] is True
+        assert outputs["stats"]["count"] >= 1
+
+    def test_final_wol_hc_downstream(self):
+        """cv→ac1→hc1→ac2→wol→hc2: HC downstream of final WoL is run in same tick (lines 2354-2357)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac1", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc1", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("ac2", "api_client", {"url": "http://93.184.216.34/two", "method": "GET"}),
+            node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"}),
+            node("hc2", "host_check", {"host": "192.168.1.2", "timeout_s": 1, "count": 1}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac1", "value", "trigger"),
+                edge("ac1", "hc1", "success", "trigger"),
+                edge("hc1", "ac2", "reachable", "trigger"),
+                edge("ac2", "wol", "success", "trigger"),
+                edge("wol", "hc2", "sent", "trigger"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-final-wol-hc"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch(
+                    "obs.logic.manager._ping_host",
+                    new_callable=AsyncMock,
+                    side_effect=[(True, 1.0), (True, 2.0)],
+                ) as mock_ping:
+                    with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock):
+                        outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        assert mock_ping.await_count == 2
+        assert outputs["wol"]["sent"] is True
+        assert outputs["hc2"]["reachable"] is True
