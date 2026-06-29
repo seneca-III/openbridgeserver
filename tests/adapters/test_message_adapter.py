@@ -149,6 +149,12 @@ def test_disabled_provider_allows_incomplete_hidden_targets():
     assert cfg.providers["telegram"]["enabled"] is False
 
 
+def test_string_disabled_provider_allows_incomplete_hidden_targets():
+    cfg = MessageAdapterConfig(providers={"telegram": {"enabled": "false", "targets": {"default": {}}}})
+
+    assert cfg.providers["telegram"]["enabled"] == "false"
+
+
 @pytest.mark.parametrize(
     ("provider", "config", "error"),
     [
@@ -433,6 +439,49 @@ async def test_any_operator_continues_draining_after_suppressed_pending_duplicat
 
 
 @pytest.mark.asyncio
+async def test_any_operator_preserves_return_to_in_flight_value_after_change(bus, monkeypatch):
+    dp_id = uuid.uuid4()
+    monkeypatch.setattr("obs.core.registry.get_registry", lambda: _Registry(_Dp(dp_id, unit=None)))
+    release = asyncio.Event()
+    messages: list[str] = []
+
+    class _SlowProvider(_DummyProvider):
+        provider_type = "slow-any-return"
+
+        def __init__(self) -> None:
+            pass
+
+        async def send(self, **kwargs):
+            messages.append(kwargs["message"])
+            await release.wait()
+            return MessageSendResult("slow-any-return", "default", True)
+
+    provider = _SlowProvider()
+    register_provider(provider)
+    adapter = MessageAdapter(
+        event_bus=bus,
+        config={"providers": {"slow-any-return": {"enabled": True, "targets": {"default": {}}}}},
+    )
+    binding = _message_binding(
+        dp_id,
+        operator="any",
+        compare_value=None,
+        message="###DP###",
+        providers=[{"provider": "slow-any-return", "target": "default"}],
+    )
+    await adapter.reload_bindings([binding])
+
+    await adapter._on_value_event(DataValueEvent(datapoint_id=dp_id, value="A", quality="good", source_adapter="test"))
+    await adapter._on_value_event(DataValueEvent(datapoint_id=dp_id, value="B", quality="good", source_adapter="test"))
+    await adapter._on_value_event(DataValueEvent(datapoint_id=dp_id, value="A", quality="good", source_adapter="test"))
+
+    release.set()
+    await _drain_sends(adapter)
+
+    assert messages == ["A", "B", "A"]
+
+
+@pytest.mark.asyncio
 async def test_send_on_change_coalesces_duplicate_pending_failure_retries(bus, monkeypatch):
     dp_id = uuid.uuid4()
     monkeypatch.setattr("obs.core.registry.get_registry", lambda: _Registry(_Dp(dp_id, unit=None)))
@@ -645,7 +694,7 @@ async def test_complete_provider_failure_is_retried_for_same_condition(bus, dumm
 
 
 @pytest.mark.asyncio
-async def test_partial_provider_failure_is_retried_for_same_condition(bus, dummy_provider, monkeypatch):
+async def test_partial_provider_failure_records_condition_for_same_value(bus, dummy_provider, monkeypatch):
     dp_id = uuid.uuid4()
     monkeypatch.setattr("obs.core.registry.get_registry", lambda: _Registry(_Dp(dp_id)))
     dummy_provider.send.side_effect = [
@@ -673,7 +722,7 @@ async def test_partial_provider_failure_is_retried_for_same_condition(bus, dummy
     await adapter._on_value_event(event)
     await _drain_sends(adapter)
 
-    assert dummy_provider.send.await_count == 4
+    assert dummy_provider.send.await_count == 2
 
 
 @pytest.mark.asyncio

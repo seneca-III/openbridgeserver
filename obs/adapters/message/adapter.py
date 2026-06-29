@@ -50,10 +50,9 @@ class MessageAdapterConfig(BaseModel):
             provider = message_providers.get_provider(provider_type)
             if provider is None:
                 raise ValueError(f"Unknown MESSAGE provider: {provider_type}")
-            if provider_config.get("enabled", False):
+            parsed_without_targets = provider.config_schema(**{**provider_config, "targets": {}})
+            if getattr(parsed_without_targets, "enabled", False):
                 provider.config_schema(**provider_config)
-            else:
-                provider.config_schema(**{**provider_config, "targets": {}})
         return self
 
 
@@ -100,7 +99,7 @@ class _BindingState:
 
     def queue_pending_event(self, binding: Any, event: DataValueEvent, coalesce_key: Any = _NO_PENDING_COALESCE) -> None:
         if coalesce_key is not _NO_PENDING_COALESCE:
-            if _values_equal(coalesce_key, self.in_flight_key):
+            if not self.pending_events and _values_equal(coalesce_key, self.in_flight_key):
                 return
             for index, (_binding, _event, pending_key) in enumerate(self.pending_events):
                 if _values_equal(coalesce_key, pending_key):
@@ -345,7 +344,8 @@ class MessageAdapter(AdapterBase):
             results = [MessageSendResult("message", "internal", False, str(exc))]
 
         success = bool(results) and all(result.ok for result in results)
-        if success:
+        partial_success = bool(results) and any(result.ok for result in results)
+        if success or partial_success:
             state.last_sent_monotonic = time.monotonic()
             if state.reset_version == reset_version:
                 state.last_condition = True
