@@ -253,7 +253,7 @@ async def update_binding(
         row["adapter_type"],
         direction,
         config,
-        validate_schema="config" in updates or "enabled" in updates,
+        validate_schema="config" in updates or (row["adapter_type"] == "MESSAGE" and "enabled" in updates),
         enabled=bool(enabled),
     )
 
