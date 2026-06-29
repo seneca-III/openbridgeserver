@@ -592,6 +592,9 @@ async def _ping_host(host: str, count: int, timeout_s: float) -> tuple[bool, flo
             if m:
                 latency_ms = float(m.group(1))
         return reachable, latency_ms
+    except FileNotFoundError:
+        logger.warning("ping binary not found — install iputils-ping to enable Host Check")
+        return False, None
     except Exception:
         return False, None
 
