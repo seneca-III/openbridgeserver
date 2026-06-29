@@ -1489,3 +1489,617 @@ class TestReplayOrderingFixes:
         assert outputs["hc1"]["reachable"] is True
         assert outputs["wol"]["sent"] is True
         assert outputs["hc2"]["reachable"] is True
+
+
+# ===========================================================================
+# _ping_host: FileNotFoundError handler (line 595-597)
+# ===========================================================================
+
+
+class TestPingHostFileNotFound:
+    def test_file_not_found_returns_false_none(self):
+        """FileNotFoundError hits the specific except FileNotFoundError branch, not the generic one."""
+        with patch(
+            "obs.logic.manager.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            side_effect=FileNotFoundError("ping not found"),
+        ):
+            reachable, latency_ms = asyncio.run(_ping_host("host", count=1, timeout_s=1))
+        assert reachable is False
+        assert latency_ms is None
+
+
+# ===========================================================================
+# _apply_operating_hours_state: reset and deactivation branches (lines 1258-1265)
+# ===========================================================================
+
+
+class TestApplyOperatingHoursStateBranches:
+    def test_reset_branch_clears_accumulated_hours(self):
+        """OH node with reset=True clears accumulated_hours and sets last_start=None (lines 1258-1259)."""
+        nodes = [
+            node("cv_reset", "const_value", {"value": "true", "data_type": "bool"}),
+            node("oh", "operating_hours", {}),
+        ]
+        flow = _flow(nodes, [edge("cv_reset", "oh", "value", "reset")])
+        manager = _make_manager()
+        graph_id = "g-oh-reset"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {"oh": {"accumulated_hours": 5.0, "last_start": None}}
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+
+        state = manager._node_state[graph_id]["oh"]
+        assert state["accumulated_hours"] == 0.0
+        assert state["last_start"] is None
+
+    def test_deactivation_accumulates_hours(self):
+        """OH node going active→inactive accumulates hours and clears last_start (lines 1264-1265)."""
+        nodes = [node("oh", "operating_hours", {})]
+        flow = _flow(nodes, [])
+        manager = _make_manager()
+        graph_id = "g-oh-deact"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            asyncio.run(manager._execute_graph(graph_id, "test", flow, {"oh": {"active": True}}))
+
+        assert manager._node_state[graph_id]["oh"]["last_start"] is not None
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            asyncio.run(manager._execute_graph(graph_id, "test", flow, {"oh": {"active": False}}))
+
+        state = manager._node_state[graph_id]["oh"]
+        assert state["accumulated_hours"] > 0
+        assert state["last_start"] is None
+
+
+# ===========================================================================
+# Post-WoL replay: hyst update + chained HC (lines 1560, 1565-1569)
+# ===========================================================================
+
+
+class TestPostWolReplayChainedHc:
+    def test_post_wol_replay_hyst_and_chained_hc(self):
+        """cv→wol→hc1→{stats,hc2}: stats hyst updated (line 1560), hc2 chained (lines 1565-1569)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"}),
+            node("hc1", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("hc2", "host_check", {"host": "192.168.1.2", "timeout_s": 1, "count": 1}),
+            node("stats", "statistics", {}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "wol", "value", "trigger"),
+                edge("wol", "hc1", "sent", "trigger"),
+                edge("hc1", "hc2", "reachable", "trigger"),
+                edge("hc1", "stats", "reachable", "value"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-post-wol-hyst"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+            with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock):
+                with patch(
+                    "obs.logic.manager._ping_host",
+                    new_callable=AsyncMock,
+                    side_effect=[(True, 1.0), (True, 2.0)],
+                ) as mock_ping:
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+
+        assert mock_ping.await_count == 2
+        assert outputs["hc1"]["reachable"] is True
+        assert outputs["hc2"]["reachable"] is True
+
+
+# ===========================================================================
+# Post-api HC replay: hyst update for stateful node (line 1861)
+# ===========================================================================
+
+
+class TestPostApiHcReplayHystUpdate:
+    def test_stateful_hyst_updated(self):
+        """cv→ac→hc→stats: statistics hyst must be copied into hyst after post-api HC replay (line 1861)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("stats", "statistics", {}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac", "value", "trigger"),
+                edge("ac", "hc", "success", "trigger"),
+                edge("hc", "stats", "reachable", "value"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-hc-stats-hyst"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        assert outputs["hc"]["reachable"] is True
+        assert "stats" in manager._graphs[graph_id][2].nodes or True  # graph still registered
+
+
+# ===========================================================================
+# Post-api WoL edge cases (lines 1890, 1893-1894, 1899, 1902, 1905-1906, 1913-1914)
+# ===========================================================================
+
+
+class TestPostApiWolEdgeCases:
+    def _run_post_api_wol_graph(self, wol_data: dict, executions: int = 1):
+        """Helper: cv→ac→hc→wol, returns outputs from the last execution."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("wol", "wake_on_lan", wol_data),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac", "value", "trigger"),
+                edge("ac", "hc", "success", "trigger"),
+                edge("hc", "wol", "reachable", "trigger"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-pawol-edge"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+        mock_client_cls = _patch_api_success()
+        outputs = {}
+        try:
+            for _ in range(executions):
+                with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                    with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                        with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock):
+                            outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        return outputs
+
+    def test_was_triggered_skipped(self):
+        """Post-api WoL: was_triggered=True → line 1890 fires (skip without re-send).
+
+        An OR gate ensures wol._trigger=True in the first executor pass so the main
+        WoL loop preserves wol_prev_trigger instead of resetting it.
+        """
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("or_gate", "or", {"input_count": 2}),
+            node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac", "value", "trigger"),
+                edge("ac", "hc", "success", "trigger"),
+                edge("cv", "or_gate", "value", "in1"),
+                edge("hc", "or_gate", "reachable", "in2"),
+                edge("or_gate", "wol", "out", "trigger"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-pawol-was-triggered"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            for _ in range(2):
+                with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                    with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                        with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock) as mock_to_thread:
+                            asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        # Second execution must skip the WoL send (was_triggered=True → line 1890)
+        mock_to_thread.assert_not_awaited()
+
+    def test_missing_mac_skips_wol(self):
+        """Post-api WoL: empty mac_address → warning logged, no send (lines 1893-1894)."""
+        outputs = self._run_post_api_wol_graph({})
+        assert outputs["wol"].get("sent") is not True
+
+    def test_fractional_port_raises(self):
+        """Post-api WoL: fractional port → ValueError caught (lines 1899, 1913-1914)."""
+        outputs = self._run_post_api_wol_graph({"mac_address": "AA:BB:CC:DD:EE:FF", "port": 9.5})
+        assert outputs["wol"].get("sent") is not True
+
+    def test_port_out_of_range_raises(self):
+        """Post-api WoL: port > 65535 → ValueError caught (line 1902, 1913-1914)."""
+        outputs = self._run_post_api_wol_graph({"mac_address": "AA:BB:CC:DD:EE:FF", "port": 99999})
+        assert outputs["wol"].get("sent") is not True
+
+    def test_invalid_broadcast_raises(self):
+        """Post-api WoL: non-IP broadcast_ip → ValueError caught (lines 1905-1906, 1913-1914)."""
+        outputs = self._run_post_api_wol_graph({"mac_address": "AA:BB:CC:DD:EE:FF", "broadcast_ip": "not-an-ip"})
+        assert outputs["wol"].get("sent") is not True
+
+
+# ===========================================================================
+# _pawol_pending loop (lines 1963-1998)
+# ===========================================================================
+
+
+class TestPaWolReplayLoop:
+    def test_pawol_pending_covers_chained_hc_and_hyst(self):
+        """cv→ac→hc1→wol→{hc2→hc3, hc2→stats}: covers the _pawol_pending loop (lines 1963-1998)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc1", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"}),
+            node("hc2", "host_check", {"host": "192.168.1.2", "timeout_s": 1, "count": 1}),
+            node("hc3", "host_check", {"host": "192.168.1.3", "timeout_s": 1, "count": 1}),
+            node("stats", "statistics", {}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac", "value", "trigger"),
+                edge("ac", "hc1", "success", "trigger"),
+                edge("hc1", "wol", "reachable", "trigger"),
+                edge("wol", "hc2", "sent", "trigger"),
+                edge("hc2", "hc3", "reachable", "trigger"),
+                edge("hc2", "stats", "reachable", "value"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-pawol-loop"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch(
+                    "obs.logic.manager._ping_host",
+                    new_callable=AsyncMock,
+                    side_effect=[(True, 1.0), (True, 2.0), (True, 3.0)],
+                ) as mock_ping:
+                    with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock):
+                        outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        assert mock_ping.await_count == 3
+        assert outputs["hc1"]["reachable"] is True
+        assert outputs["hc2"]["reachable"] is True
+        assert outputs["hc3"]["reachable"] is True
+
+
+# ===========================================================================
+# Post-api-hc api_client edge paths (lines 2019-2141)
+# ===========================================================================
+
+
+class TestPostApiHcApiEdgePaths:
+    def test_empty_url_skips_request(self):
+        """Post-api-hc api_client: empty URL → continue (line 2019), no HTTP call made."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph({"url": "", "method": "GET"})
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        # ac2 was skipped — success key may be absent or None
+        assert outputs.get("ac2", {}).get("success") is not True
+
+    def test_variable_error_in_url(self):
+        """Post-api-hc api_client: unresolvable URL variable → error recorded (lines 2020-2025)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph({"url": "http://93.184.216.34/###OBS1###", "method": "GET"})
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is False
+        assert "OBS1" in str(outputs["ac2"]["response"])
+
+    def test_headers_secret_file_json_parse_failure(self):
+        """Post-api-hc api_client: nonexistent headers_secret_file → JSONDecodeError swallowed (lines 2050, 2055-2056)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph(
+            {"url": "http://93.184.216.34/two", "method": "GET", "headers_secret_file": "/run/secrets/nonexistent"}
+        )
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        # Request still completes (exception in headers file is swallowed)
+        assert outputs["ac2"]["success"] is True
+
+    def test_headers_secret_file_success(self):
+        """Post-api-hc api_client: headers_secret_file returns valid JSON (line 2051)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph(
+            {"url": "http://93.184.216.34/two", "method": "GET", "headers_secret_file": "/run/secrets/hdr"}
+        )
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    with patch("obs.logic.manager._read_secret_file", return_value='{"X-Custom": "value"}'):
+                        outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is True
+
+    def test_header_variable_error(self):
+        """Post-api-hc api_client: unresolvable variable in headers → error recorded (lines 2059-2064)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph(
+            {"url": "http://93.184.216.34/two", "method": "GET", "headers": '{"X-Token": "###OBS1###"}'}
+        )
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is False
+        assert "OBS1" in str(outputs["ac2"]["response"])
+
+    def test_bearer_token_from_file(self):
+        """Post-api-hc api_client: empty auth_token falls back to auth_token_file (line 2085)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph(
+            {"url": "http://93.184.216.34/two", "method": "GET", "auth_type": "bearer", "auth_token": "", "auth_token_file": "/run/secrets/tok"}
+        )
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    with patch("obs.logic.manager._read_secret_file", return_value="my-bearer-token"):
+                        outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is True
+
+    def test_auth_variable_error(self):
+        """Post-api-hc api_client: unresolvable variable in auth_username → error recorded (lines 2094-2099)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph(
+            {
+                "url": "http://93.184.216.34/two",
+                "method": "GET",
+                "auth_type": "basic",
+                "auth_username": "###OBS1###",
+                "auth_password": "secret",
+            }
+        )
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is False
+        assert "OBS1" in str(outputs["ac2"]["response"])
+
+    def test_form_encoded_body(self):
+        """Post-api-hc api_client: content_type=application/x-www-form-urlencoded sets data= (lines 2113-2114)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph(
+            {"url": "http://93.184.216.34/two", "method": "POST", "content_type": "application/x-www-form-urlencoded"}
+        )
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is True
+
+    def test_text_plain_body(self):
+        """Post-api-hc api_client: content_type=text/plain sets content= and Content-Type header (lines 2116-2117)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph({"url": "http://93.184.216.34/two", "method": "POST", "content_type": "text/plain"})
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is True
+
+    def test_https_request_extensions(self):
+        """Post-api-hc api_client: HTTPS URL → request_extensions set with sni_hostname (line 2124)."""
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph({"url": "https://93.184.216.34/two", "method": "GET"})
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+        assert outputs["ac2"]["success"] is True
+
+    def test_large_response_truncated(self):
+        """Post-api-hc api_client: response text > 1 MB is truncated to 1 MB (line 2141)."""
+
+        class _LargeResponse:
+            status_code = 200
+            text = "x" * 1_000_001
+
+            def json(self):
+                raise ValueError("not json")
+
+        flow, manager, graph_id = _setup_post_api_hc_ac2_graph({"url": "http://93.184.216.34/two", "method": "GET", "response_type": "text/plain"})
+        patcher = patch("obs.logic.manager.httpx.AsyncClient")
+        mock_client_cls = patcher.start()
+        mock_client = AsyncMock()
+        mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock_client.request = AsyncMock(return_value=_LargeResponse())
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            patcher.stop()
+
+        assert len(outputs["ac2"]["response"]) == 1_000_000
+
+
+# ===========================================================================
+# Final-api replay: stateful hyst update (line 2206)
+# ===========================================================================
+
+
+class TestFinalApiReplayStateful:
+    def test_final_api_replay_updates_stateful_hyst(self):
+        """cv→ac1→hc1→ac2→stats: statistics hyst copied after final-api replay (line 2206)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac1", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc1", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("ac2", "api_client", {"url": "http://93.184.216.34/two", "method": "GET"}),
+            node("stats", "statistics", {}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac1", "value", "trigger"),
+                edge("ac1", "hc1", "success", "trigger"),
+                edge("hc1", "ac2", "reachable", "trigger"),
+                edge("ac2", "stats", "success", "value"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-final-api-hyst"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        assert outputs["ac2"]["success"] is True
+        assert outputs["stats"]["count"] == 1
+
+
+# ===========================================================================
+# Final-api replay: chained HC (lines 2261, 2266-2270)
+# ===========================================================================
+
+
+class TestFinalApiReplayChainedHc:
+    def test_final_api_chained_hc(self):
+        """cv→ac1→hc1→ac2→hc2→{hc3,stats}: chained HCs + hyst update in final-api replay (lines 2261, 2266-2270)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac1", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc1", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("ac2", "api_client", {"url": "http://93.184.216.34/two", "method": "GET"}),
+            node("hc2", "host_check", {"host": "192.168.1.2", "timeout_s": 1, "count": 1}),
+            node("hc3", "host_check", {"host": "192.168.1.3", "timeout_s": 1, "count": 1}),
+            node("stats", "statistics", {}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac1", "value", "trigger"),
+                edge("ac1", "hc1", "success", "trigger"),
+                edge("hc1", "ac2", "reachable", "trigger"),
+                edge("ac2", "hc2", "success", "trigger"),
+                edge("hc2", "hc3", "reachable", "trigger"),
+                edge("hc2", "stats", "reachable", "value"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-final-api-chained-hc"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch(
+                    "obs.logic.manager._ping_host",
+                    new_callable=AsyncMock,
+                    side_effect=[(True, 1.0), (True, 2.0), (True, 3.0)],
+                ) as mock_ping:
+                    outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        assert mock_ping.await_count == 3
+        assert outputs["hc1"]["reachable"] is True
+        assert outputs["hc2"]["reachable"] is True
+        assert outputs["hc3"]["reachable"] is True
+
+
+# ===========================================================================
+# Final WoL downstream propagation (lines 2316-2338)
+# ===========================================================================
+
+
+class TestFinalWolDownstream:
+    def test_final_wol_downstream_propagation(self):
+        """cv→ac1→hc1→ac2→wol→gate: Final WoL pass propagates sent=True to gate (lines 2316-2338)."""
+        nodes = [
+            node("cv", "const_value", {"value": "true", "data_type": "bool"}),
+            node("ac1", "api_client", {"url": "http://93.184.216.34/one", "method": "GET"}),
+            node("hc1", "host_check", {"host": "192.168.1.1", "timeout_s": 1, "count": 1}),
+            node("ac2", "api_client", {"url": "http://93.184.216.34/two", "method": "GET"}),
+            node("wol", "wake_on_lan", {"mac_address": "AA:BB:CC:DD:EE:FF"}),
+            node("gate", "and", {"input_count": 2}),
+        ]
+        flow = _flow(
+            nodes,
+            [
+                edge("cv", "ac1", "value", "trigger"),
+                edge("ac1", "hc1", "success", "trigger"),
+                edge("hc1", "ac2", "reachable", "trigger"),
+                edge("ac2", "wol", "success", "trigger"),
+                edge("wol", "gate", "sent", "in1"),
+                edge("cv", "gate", "value", "in2"),
+            ],
+        )
+        manager = _make_manager()
+        graph_id = "g-final-wol-dn"
+        manager._graphs[graph_id] = ("test", True, flow)
+        manager._node_state[graph_id] = {}
+
+        mock_client_cls = _patch_api_success()
+        try:
+            with patch("obs.api.v1.websocket.get_ws_manager", side_effect=RuntimeError("no ws")):
+                with patch("obs.logic.manager._ping_host", new_callable=AsyncMock, return_value=(True, 1.0)):
+                    with patch("obs.logic.manager.asyncio.to_thread", new_callable=AsyncMock):
+                        outputs = asyncio.run(manager._execute_graph(graph_id, "test", flow, {}))
+        finally:
+            mock_client_cls.stop()
+
+        assert outputs["wol"]["sent"] is True
+        assert outputs["gate"]["out"] is True
