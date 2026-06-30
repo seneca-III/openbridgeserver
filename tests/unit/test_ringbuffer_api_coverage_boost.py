@@ -124,6 +124,42 @@ def test_helpers_now_uuid_decode_encode():
     assert rb_api._decode_filter(encoded).datapoints == ["dp-1"]
 
 
+def test_runtime_ringbuffer_helpers_cover_settings_and_event_bus(monkeypatch):
+    monkeypatch.setattr(
+        "obs.config.get_settings",
+        lambda: SimpleNamespace(database=SimpleNamespace(path="/tmp/custom.sqlite")),
+    )
+    assert rb_api._ringbuffer_disk_path() == "/tmp/custom_ringbuffer.db"
+
+    calls: list[tuple[str, object, object]] = []
+
+    class _BusStub:
+        def subscribe(self, event_type, handler):
+            calls.append(("subscribe", event_type, handler))
+
+        def unsubscribe(self, event_type, handler):
+            calls.append(("unsubscribe", event_type, handler))
+
+    rb = SimpleNamespace(handle_value_event=object())
+    monkeypatch.setattr("obs.core.event_bus.get_event_bus", lambda: _BusStub())
+
+    rb_api._subscribe_ringbuffer(rb)
+    rb_api._unsubscribe_ringbuffer(rb)
+
+    assert [call[0] for call in calls] == ["subscribe", "unsubscribe"]
+
+
+def test_runtime_ringbuffer_helpers_ignore_missing_event_bus(monkeypatch):
+    def _missing_bus():
+        raise RuntimeError("event bus not initialized")
+
+    monkeypatch.setattr("obs.core.event_bus.get_event_bus", _missing_bus)
+    rb = SimpleNamespace(handle_value_event=object())
+
+    rb_api._subscribe_ringbuffer(rb)
+    rb_api._unsubscribe_ringbuffer(rb)
+
+
 def test_csv_helpers_map_entry_fields():
     entry = rb_api.RingBufferEntryOut(
         id=11,
@@ -223,6 +259,51 @@ async def test_query_v2_entries_returns_empty_when_monitor_disabled(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_legacy_query_returns_empty_when_monitor_disabled(monkeypatch):
+    monkeypatch.setattr(rb_api, "is_ringbuffer_enabled", lambda: False)
+    monkeypatch.setattr("obs.core.registry.get_registry", lambda: pytest.fail("registry should not be loaded"))
+
+    rows = await rb_api.query_ringbuffer()
+
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_ringbuffer_stats_returns_disabled_and_enabled_shapes(monkeypatch):
+    db = Database(":memory:")
+    await db.connect()
+    try:
+        monkeypatch.setattr(rb_api, "is_ringbuffer_enabled", lambda: False)
+        monkeypatch.setattr(rb_api, "get_optional_ringbuffer", lambda: None)
+        disabled = await rb_api.ringbuffer_stats(_user="admin", db=db)
+        assert disabled.enabled is False
+        assert disabled.total == 0
+
+        class _StatsRingBuffer:
+            async def stats(self):
+                return {
+                    "total": 4,
+                    "oldest_ts": "2026-01-01T00:00:00Z",
+                    "newest_ts": "2026-01-01T00:01:00Z",
+                    "storage": "file",
+                    "max_entries": 100,
+                    "effective_retention_seconds": None,
+                    "max_file_size_bytes": None,
+                    "max_age": None,
+                    "file_size_bytes": 2048,
+                }
+
+        monkeypatch.setattr(rb_api, "is_ringbuffer_enabled", lambda: True)
+        monkeypatch.setattr(rb_api, "get_optional_ringbuffer", lambda: _StatsRingBuffer())
+        enabled = await rb_api.ringbuffer_stats(_user="admin", db=db)
+        assert enabled.enabled is True
+        assert enabled.total == 4
+        assert enabled.file_size_bytes == 2048
+    finally:
+        await db.disconnect()
+
+
+@pytest.mark.asyncio
 async def test_configure_disable_stops_ringbuffer_persists_flag_and_deletes_storage(tmp_path, monkeypatch):
     db = Database(":memory:")
     await db.connect()
@@ -251,6 +332,47 @@ async def test_configure_disable_stops_ringbuffer_persists_flag_and_deletes_stor
     assert stats.total == 0
     assert cfg["enabled"] is False
     assert not rb_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_configure_enable_initializes_ringbuffer_when_missing(tmp_path, monkeypatch):
+    db = Database(":memory:")
+    await db.connect()
+    rb_path = tmp_path / "obs_ringbuffer.db"
+    subscribed = {"called": False}
+
+    def _mark_subscribed(_rb):
+        subscribed["called"] = True
+
+    reset_ringbuffer()
+    rb_api.set_ringbuffer_enabled(False)
+    monkeypatch.setattr(rb_api, "_ringbuffer_disk_path", lambda: str(rb_path))
+    monkeypatch.setattr(rb_api, "_subscribe_ringbuffer", _mark_subscribed)
+
+    try:
+        stats = await rb_api.configure_ringbuffer(
+            rb_api.RingBufferConfig(
+                enabled=True,
+                max_entries=12,
+                max_file_size_bytes=1024 * 1024,
+                max_age=3600,
+            ),
+            _user="admin",
+            db=db,
+        )
+        cfg = await rb_api.load_persisted_ringbuffer_config(db)
+    finally:
+        rb = rb_api.get_optional_ringbuffer()
+        if rb is not None:
+            await rb.stop()
+        reset_ringbuffer()
+        await db.disconnect()
+
+    assert subscribed["called"] is True
+    assert stats.enabled is True
+    assert stats.max_entries == 12
+    assert cfg["enabled"] is True
+    assert cfg["max_entries"] == 12
 
 
 # ---------------------------------------------------------------------------

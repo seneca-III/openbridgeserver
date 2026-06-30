@@ -121,6 +121,27 @@ async def test_disabled_ringbuffer_skips_records():
 
 
 @pytest.mark.asyncio
+async def test_disabled_ringbuffer_skips_event_bus_handler(monkeypatch):
+    rb = RingBuffer(storage="memory", max_entries=5)
+    await rb.start()
+    rb_mod.set_ringbuffer_enabled(False)
+    monkeypatch.setattr("obs.core.registry.get_registry", lambda: pytest.fail("registry should not be loaded"))
+    try:
+        event = SimpleNamespace(
+            datapoint_id=uuid4(),
+            ts=datetime.now(UTC),
+            value=42,
+            source_adapter="api",
+            quality="good",
+        )
+        await rb.handle_value_event(event)
+        assert await rb.query(limit=5) == []
+    finally:
+        rb_mod.set_ringbuffer_enabled(True)
+        await rb.stop()
+
+
+@pytest.mark.asyncio
 async def test_handle_value_event_falls_back_to_default_topic_when_registry_unavailable(monkeypatch):
     rb = RingBuffer(storage="memory", max_entries=5)
     await rb.start()
