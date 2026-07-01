@@ -123,6 +123,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # 8. Adapters — import triggers @register, then start_all loads DB configs + bindings
     import obs.adapters.homeassistant.adapter
+    import obs.adapters.enocean_mqtt.adapter  # noqa: F401
     import obs.adapters.iobroker.adapter
     import obs.adapters.knx.adapter
     import obs.adapters.modbus_rtu.adapter

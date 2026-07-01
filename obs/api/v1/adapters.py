@@ -131,6 +131,28 @@ class IoBrokerStateOut(BaseModel):
     unit: str | None = None
 
 
+class EnoceanMqttDeviceOut(BaseModel):
+    id: str
+    name: str | None = None
+    alias: str | None = None
+    eep: str | None = None
+    manufacturer: str | None = None
+    datapoints_count: int = 0
+
+
+class EnoceanMqttDatapointOut(BaseModel):
+    id: str
+    device_id: str | None = None
+    name: str | None = None
+    channel: str | None = None
+    data_type: str = "UNKNOWN"
+    unit: str | None = None
+    readable: bool = True
+    writable: bool = False
+    role: str | None = None
+    value: Any = None
+
+
 class IoBrokerImportRequest(BaseModel):
     prefix: str = ""
     states: list[str] = []
@@ -168,6 +190,37 @@ class ConfigPatch(BaseModel):
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
+
+async def _enocean_mqtt_adapter_for_instance(instance_id: uuid.UUID, db: Database) -> tuple[Any, bool]:
+    row = await db.fetchone("SELECT * FROM adapter_instances WHERE id=?", (str(instance_id),))
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Instanz nicht gefunden")
+    if row["adapter_type"] != "ENOCEAN":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Nur für EnOcean-Instanzen verfügbar")
+
+    running = adapter_registry.get_instance_by_id(str(instance_id))
+    if running is not None and hasattr(running, "browse_devices"):
+        return running, False
+
+    from obs.adapters.enocean_mqtt.adapter import EnoceanMqttAdapter
+    from obs.core.event_bus import EventBus
+
+    raw_config = row["config"] or "{}"
+    config_dict = json.loads(raw_config) if isinstance(raw_config, str) else raw_config
+    try:
+        dummy = EnoceanMqttAdapter(event_bus=EventBus(), config=config_dict)
+        await dummy.connect()
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"EnOcean-Verbindung fehlgeschlagen: {exc}",
+        ) from exc
+    if not dummy.connected:
+        detail = getattr(dummy, "last_detail", "") or "EnOcean-Verbindung fehlgeschlagen"
+        await dummy.disconnect()
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail)
+    return dummy, True
 
 
 def _instance_out(row: Any, instance: Any | None) -> AdapterInstanceOut:
@@ -657,6 +710,52 @@ async def mqtt_browse_topics(
         )
 
     return sorted(topics)
+
+
+@router.get("/instances/{instance_id}/enocean-mqtt/devices", response_model=list[EnoceanMqttDeviceOut])
+async def enocean_mqtt_browse_devices(
+    instance_id: uuid.UUID,
+    _user: str = Depends(get_current_user),
+    db: Database = Depends(lambda: get_db()),
+) -> list[EnoceanMqttDeviceOut]:
+    adapter, close_after = await _enocean_mqtt_adapter_for_instance(instance_id, db)
+    try:
+        return [EnoceanMqttDeviceOut(**item) for item in await adapter.browse_devices()]
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"EnOcean-Geräte konnten nicht geladen werden: {exc}",
+        ) from exc
+    finally:
+        if close_after:
+            await adapter.disconnect()
+
+
+@router.get(
+    "/instances/{instance_id}/enocean-mqtt/devices/{device_id}/datapoints",
+    response_model=list[EnoceanMqttDatapointOut],
+)
+async def enocean_mqtt_browse_datapoints(
+    instance_id: uuid.UUID,
+    device_id: str,
+    direction: str = Query("SOURCE", pattern="^(SOURCE|DEST|BOTH)$"),
+    _user: str = Depends(get_current_user),
+    db: Database = Depends(lambda: get_db()),
+) -> list[EnoceanMqttDatapointOut]:
+    adapter, close_after = await _enocean_mqtt_adapter_for_instance(instance_id, db)
+    try:
+        return [
+            EnoceanMqttDatapointOut(**item)
+            for item in await adapter.browse_datapoints(device_id, direction)
+        ]
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"EnOcean-Datenpunkte konnten nicht geladen werden: {exc}",
+        ) from exc
+    finally:
+        if close_after:
+            await adapter.disconnect()
 
 
 @router.get("/instances/{instance_id}/mqtt/sample")

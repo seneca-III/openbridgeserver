@@ -90,6 +90,23 @@
           @mqtt-xml-sample-input="onMqttXmlSampleInput"
         />
 
+      <!-- EnOcean via enocean-mqtt REST API -->
+      <BindingFormEnoceanMqtt
+        v-if="selectedAdapterType === 'ENOCEAN'"
+          :cfg="cfg"
+          :selected-instance-id="selectedInstanceId"
+          :enocean-devices="enoceanDevices"
+          :enocean-devices-loading="enoceanDevicesLoading"
+          :enocean-devices-error="enoceanDevicesError"
+          :enocean-datapoints="enoceanDatapoints"
+          :enocean-datapoints-loading="enoceanDatapointsLoading"
+          :enocean-datapoints-error="enoceanDatapointsError"
+          @browse-enocean-devices="browseEnoceanDevices"
+          @browse-enocean-datapoints="browseEnoceanDatapoints"
+          @select-enocean-device="selectEnoceanDevice"
+          @select-enocean-datapoint="selectEnoceanDatapoint"
+        />
+
       <!-- 1-Wire -->
       <BindingFormOnewire
         v-if="selectedAdapterType === 'ONEWIRE'"
@@ -307,6 +324,7 @@ import Spinner    from '@/components/ui/Spinner.vue'
 import BindingFormKnx from '@/components/datapoints/binding-form/BindingFormKnx.vue'
 import BindingFormModbus from '@/components/datapoints/binding-form/BindingFormModbus.vue'
 import BindingFormMqtt from '@/components/datapoints/binding-form/BindingFormMqtt.vue'
+import BindingFormEnoceanMqtt from '@/components/datapoints/binding-form/BindingFormEnoceanMqtt.vue'
 import BindingFormOnewire from '@/components/datapoints/binding-form/BindingFormOnewire.vue'
 import BindingFormHomeAssistant from '@/components/datapoints/binding-form/BindingFormHomeAssistant.vue'
 import BindingFormIoBroker from '@/components/datapoints/binding-form/BindingFormIoBroker.vue'
@@ -371,6 +389,7 @@ const cfg = reactive({
   byte_order: 'big', word_order: 'big',
   topic: '', publish_topic: '', retain: false, payload_template: '',
   source_data_type: '', json_key: '', xml_path: '',
+  datapoint_id: '', device_id: '',
   sensor_id: '', sensor_type: 'DS18B20',
   // HOME_ASSISTANT
   entity_id: '', attribute: '', service_domain: '', service_name: '', service_data_key: '',
@@ -449,6 +468,14 @@ const mqttSampleLoading  = ref(false)
 const mqttBrowseTopics = ref([])
 const mqttBrowseLoading = ref(false)
 const mqttBrowseError  = ref(null)
+
+// enocean-mqtt browser state
+const enoceanDevices = ref([])
+const enoceanDevicesLoading = ref(false)
+const enoceanDevicesError = ref(null)
+const enoceanDatapoints = ref([])
+const enoceanDatapointsLoading = ref(false)
+const enoceanDatapointsError = ref(null)
 
 // ioBroker state browser state
 const iobrokerStates = ref([])
@@ -608,6 +635,8 @@ watch(() => props.initial, val => {
   if (cfg.source_data_type   == null) cfg.source_data_type = ''
   if (cfg.json_key           == null) cfg.json_key = ''
   if (cfg.xml_path           == null) cfg.xml_path = ''
+  if (cfg.datapoint_id       == null) cfg.datapoint_id = ''
+  if (cfg.device_id          == null) cfg.device_id = ''
   // HOME_ASSISTANT defaults when loading
   if (cfg.entity_id        == null) cfg.entity_id        = ''
   if (cfg.attribute        == null) cfg.attribute        = ''
@@ -751,6 +780,63 @@ function selectMqttTopic(topic) {
   mqttBrowseError.value  = null
 }
 
+async function browseEnoceanDevices() {
+  const instanceId = selectedInstanceId.value
+  if (!instanceId) {
+    enoceanDevicesError.value = t('adapters.bindingForm.errors.selectEnoceanInstanceFirst')
+    return
+  }
+  enoceanDevicesLoading.value = true
+  enoceanDevicesError.value = null
+  enoceanDevices.value = []
+  enoceanDatapoints.value = []
+  try {
+    const { data } = await adapterApi.enoceanMqttBrowseDevices(instanceId)
+    enoceanDevices.value = data
+    if (data.length === 0) enoceanDevicesError.value = t('adapters.bindingForm.errors.noEnoceanDevicesFound')
+  } catch (e) {
+    enoceanDevicesError.value = e.response?.data?.detail ?? t('adapters.bindingForm.errors.enoceanDevicesLoadFailed')
+  } finally {
+    enoceanDevicesLoading.value = false
+  }
+}
+
+function selectEnoceanDevice(deviceId) {
+  cfg.device_id = deviceId
+  cfg.datapoint_id = ''
+  enoceanDatapoints.value = []
+  enoceanDatapointsError.value = null
+  if (deviceId) browseEnoceanDatapoints()
+}
+
+async function browseEnoceanDatapoints() {
+  const instanceId = selectedInstanceId.value
+  if (!instanceId) {
+    enoceanDatapointsError.value = t('adapters.bindingForm.errors.selectEnoceanInstanceFirst')
+    return
+  }
+  if (!cfg.device_id) {
+    enoceanDatapointsError.value = t('adapters.bindingForm.errors.selectEnoceanDeviceFirst')
+    return
+  }
+  enoceanDatapointsLoading.value = true
+  enoceanDatapointsError.value = null
+  try {
+    const { data } = await adapterApi.enoceanMqttBrowseDatapoints(instanceId, cfg.device_id, form.direction)
+    enoceanDatapoints.value = data
+    if (data.length === 0) enoceanDatapointsError.value = t('adapters.bindingForm.errors.noEnoceanDatapointsFound')
+  } catch (e) {
+    enoceanDatapointsError.value = e.response?.data?.detail ?? t('adapters.bindingForm.errors.enoceanDatapointsLoadFailed')
+  } finally {
+    enoceanDatapointsLoading.value = false
+  }
+}
+
+function selectEnoceanDatapoint(datapointId) {
+  cfg.datapoint_id = datapointId
+  enoceanDatapointsError.value = null
+}
+
 function onIoBrokerStateInput() {
   iobrokerBrowseError.value = null
   clearTimeout(iobrokerBrowseTimer)
@@ -880,9 +966,24 @@ watch(selectedAdapterType, type => {
   if (type === 'SNMP' && !cfg.poll_interval) cfg.poll_interval = 30.0
 })
 
+watch(() => form.direction, () => {
+  if (selectedAdapterType.value === 'ENOCEAN' && cfg.device_id) {
+    cfg.datapoint_id = ''
+    browseEnoceanDatapoints()
+  }
+})
+
 watch(selectedInstanceId, (newId, oldId) => {
   if (oldId && newId !== oldId && selectedAdapterType.value === 'MESSAGE') {
     cfg.providers = []
+  }
+  if (oldId && newId !== oldId && selectedAdapterType.value === 'ENOCEAN') {
+    cfg.device_id = ''
+    cfg.datapoint_id = ''
+    enoceanDevices.value = []
+    enoceanDatapoints.value = []
+    enoceanDevicesError.value = null
+    enoceanDatapointsError.value = null
   }
 })
 
@@ -1148,6 +1249,11 @@ function buildConfig() {
       if (cfg.source_data_type === 'xml' && cfg.xml_path?.trim())
         c.xml_path = cfg.xml_path.trim()
     }
+    return c
+  }
+  if (type === 'ENOCEAN') {
+    const c = { datapoint_id: cfg.datapoint_id }
+    if (cfg.device_id?.trim()) c.device_id = cfg.device_id.trim()
     return c
   }
   if (type === 'ONEWIRE') {

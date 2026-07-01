@@ -340,6 +340,12 @@
         "invalidXml": "Invalid XML: {msg}",
         "noChildElementsFound": "No child elements found",
         "sampleMustBeJsonObjectOrArray": "Sample must be a JSON object or array",
+        "selectEnoceanInstanceFirst": "Please select an EnOcean instance first",
+        "selectEnoceanDeviceFirst": "Please select an EnOcean device first",
+        "noEnoceanDevicesFound": "No EnOcean devices found",
+        "noEnoceanDatapointsFound": "No matching EnOcean datapoints found",
+        "enoceanDevicesLoadFailed": "Could not load EnOcean devices",
+        "enoceanDatapointsLoadFailed": "Could not load EnOcean datapoints",
         "selectAdapterInstance": "Please select an adapter instance"
       },
       "knxSection": "KNX binding",
@@ -395,6 +401,14 @@
       "xmlPathLabel": "Element path *",
       "xmlPathPlaceholder": "e.g. temperature or data/sensors/temperature",
       "xmlPathHint": "Path relative to the root element (ET-XPath, e.g. data/temperature). Numeric text values are converted automatically.",
+      "enoceanSection": "EnOcean binding",
+      "enoceanDeviceLabel": "Device *",
+      "enoceanDevicePlaceholder": "Select device …",
+      "enoceanDeviceHint": "Devices are read from enocean-mqtt.",
+      "enoceanDatapointLabel": "Channel / datapoint *",
+      "enoceanDatapointPlaceholder": "Select channel …",
+      "enoceanDatapointHint": "The list follows the selected direction: Read shows RO, Write shows WO.",
+      "enoceanDatapointsCount": "datapoints",
       "onewireSection": "1-Wire binding",
       "onewireSensorIdLabel": "Sensor ID *",
       "onewireSensorIdPlaceholder": "e.g. 28-000000000001",
@@ -934,6 +948,24 @@
         "timeout": {
           "title": "Timeout (s)",
           "description": "Request timeout in seconds"
+        }
+      },
+      "ENOCEAN": {
+        "base_url": {
+          "title": "Base URL",
+          "description": "URL of the enocean-mqtt API, e.g. http://localhost:8001"
+        },
+        "token": {
+          "title": "API token",
+          "description": "Bearer token for /api/v1 when enabled in enocean-mqtt"
+        },
+        "poll_interval": {
+          "title": "Poll interval (s)",
+          "description": "How often read datapoints are refreshed through the API"
+        },
+        "timeout": {
+          "title": "Timeout (s)",
+          "description": "HTTP request timeout in seconds"
         }
       },
       "MQTT": {
