@@ -133,6 +133,7 @@ class IoBrokerStateOut(BaseModel):
 
 class EnoceanMqttDeviceOut(BaseModel):
     id: str
+    device_name: str | None = None
     name: str | None = None
     alias: str | None = None
     eep: str | None = None

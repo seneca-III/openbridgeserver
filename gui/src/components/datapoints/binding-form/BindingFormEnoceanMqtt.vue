@@ -12,7 +12,7 @@
       >
         <option value="">{{ $t('adapters.bindingForm.enoceanDevicePlaceholder') }}</option>
         <option v-for="device in enoceanDevices" :key="device.id" :value="device.id">
-          {{ device.name || device.id }}
+          {{ displayDeviceName(device) }}
         </option>
       </select>
       <button
@@ -31,12 +31,12 @@
 
   <div v-if="selectedDevice" class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 text-xs text-slate-500">
     <div class="flex items-center gap-2 min-w-0">
-      <span class="font-medium text-slate-700 dark:text-slate-200 truncate">{{ selectedDevice.name || selectedDevice.id }}</span>
+      <span class="font-medium text-slate-700 dark:text-slate-200 truncate">{{ displayDeviceName(selectedDevice) }}</span>
       <span v-if="selectedDevice.eep" class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 shrink-0">{{ selectedDevice.eep }}</span>
       <span v-if="selectedDevice.datapoints_count" class="shrink-0">{{ selectedDevice.datapoints_count }} {{ $t('adapters.bindingForm.enoceanDatapointsCount') }}</span>
     </div>
-    <div v-if="selectedDevice.manufacturer || selectedDevice.alias" class="mt-1 truncate">
-      {{ [selectedDevice.manufacturer, selectedDevice.alias].filter(Boolean).join(' · ') }}
+    <div v-if="selectedDeviceMeta.length" class="mt-1 truncate">
+      {{ selectedDeviceMeta.join(' · ') }}
     </div>
   </div>
 
@@ -120,4 +120,30 @@ defineEmits([
 const selectedDevice = computed(() =>
   props.enoceanDevices.find(device => String(device.id) === String(props.cfg.device_id)) ?? null
 )
+
+const selectedDeviceMeta = computed(() => {
+  if (!selectedDevice.value) return []
+  const label = displayDeviceName(selectedDevice.value)
+  return uniqueDeviceParts([
+    selectedDevice.value.manufacturer,
+    selectedDevice.value.alias,
+    selectedDevice.value.id,
+  ], label)
+})
+
+function displayDeviceName(device) {
+  return device?.device_name || device?.name || device?.alias || device?.id || ''
+}
+
+function uniqueDeviceParts(parts, label) {
+  const seen = new Set([String(label || '').trim()])
+  const result = []
+  for (const part of parts) {
+    const text = String(part || '').trim()
+    if (!text || seen.has(text)) continue
+    seen.add(text)
+    result.push(text)
+  }
+  return result
+}
 </script>

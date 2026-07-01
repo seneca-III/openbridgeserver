@@ -92,7 +92,8 @@ async def test_browse_devices_normalizes_api_payload(mock_bus):
                 "devices": [
                     {
                         "id": "th_sensor",
-                        "name": "TH Sensor",
+                        "device_name": "TH Sensor",
+                        "alias": "th_sensor",
                         "eep": "A5-04-01",
                         "datapoints": [{"id": "temperature"}],
                     }
@@ -106,8 +107,9 @@ async def test_browse_devices_normalizes_api_payload(mock_bus):
     assert await adapter.browse_devices() == [
         {
             "id": "th_sensor",
+            "device_name": "TH Sensor",
             "name": "TH Sensor",
-            "alias": None,
+            "alias": "th_sensor",
             "eep": "A5-04-01",
             "manufacturer": None,
             "datapoints_count": 1,

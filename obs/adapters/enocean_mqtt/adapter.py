@@ -233,7 +233,7 @@ def _payload_items(payload: Any, key: str) -> list[Any]:
 
 def _normalize_device(item: Any) -> dict[str, Any]:
     if not isinstance(item, dict):
-        return {"id": str(item), "name": str(item), "datapoints_count": 0}
+        return {"id": str(item), "device_name": str(item), "name": str(item), "datapoints_count": 0}
 
     device_id = str(
         item.get("id")
@@ -242,10 +242,18 @@ def _normalize_device(item: Any) -> dict[str, Any]:
         or item.get("external_id")
         or ""
     )
+    device_name = str(
+        item.get("device_name")
+        or item.get("display_name")
+        or item.get("name")
+        or item.get("alias")
+        or device_id
+    )
     datapoints = item.get("datapoints")
     return {
         "id": device_id,
-        "name": item.get("name") or item.get("display_name") or item.get("alias") or device_id,
+        "device_name": device_name,
+        "name": device_name,
         "alias": item.get("alias"),
         "eep": item.get("eep") or item.get("profile"),
         "manufacturer": item.get("manufacturer"),
